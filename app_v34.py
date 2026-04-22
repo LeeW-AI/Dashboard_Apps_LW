@@ -89,29 +89,53 @@ for r_idx in range(0, 15):
                             legend_colors[label_key] = (bg.get('red', 0), bg.get('green', 0), bg.get('blue', 0))
                             break
 
-# STEP B: Core Loop (Counting + Map Building)
+
+# --- STEP B: Core Loop (Counting + Map Building) ---
 for r_idx, row in enumerate(row_data):
-    if r_idx < 14 or r_idx >= len(raw_data): continue 
+    # Skip header rows
+    if r_idx < 14 or r_idx >= len(raw_data): 
+        continue 
+    
     if 'values' in row:
+        current_text_row = raw_data[r_idx]
         for c_idx, cell in enumerate(row['values']):
-            tile_name = str(raw_data[r_idx][c_idx]).strip()
+            # SAFETY CHECK: Ensure the column index exists in the raw text data
+            if c_idx >= len(current_text_row):
+                continue
+                
+            tile_name = str(current_text_row[c_idx]).strip()
             coords = clean_coord(tile_name)
+            
             if coords:
-                bg = cell.get('effectiveFormat', {}).get('backgroundColor', {'red': 1, 'green': 1, 'blue': 1})
+                # Use effectiveFormat (v35) but fallback to userEnteredFormat (v6_07)
+                bg = cell.get('effectiveFormat', {}).get('backgroundColor', 
+                     cell.get('userEnteredFormat', {}).get('backgroundColor', {'red': 1, 'green': 1, 'blue': 1}))
+                
                 curr_rgb = (bg.get('red', 0), bg.get('green', 0), bg.get('blue', 0))
                 
                 matched = False
                 for key in ["25", "50", "75", "100"]:
-                    if colors_match(curr_rgb, legend_colors[key]):
+                    if legend_colors[key] and colors_match(curr_rgb, legend_colors[key]):
                         if key == "25": tiles_25 += 1
                         elif key == "50": tiles_50 += 1
                         elif key == "75": tiles_75 += 1
                         elif key == "100": tiles_100 += 1
                         matched = True
                         break
-                if not matched: tiles_0 += 1
                 
-                map_points.append({'x': coords[0], 'y': coords[1], 'color': mcolors.to_hex(curr_rgb), 'name': tile_name})
+                if not matched: 
+                    tiles_0 += 1
+                
+                map_points.append({
+                    'x': coords[0], 
+                    'y': coords[1], 
+                    'color': mcolors.to_hex(curr_rgb), 
+                    'name': tile_name
+                })
+
+
+
+
 
 # --- 3. UI Layout ---
 
