@@ -1,11 +1,11 @@
-####### ---  Tilemap Stats Dashboard Web App  v6_06 ------########
+####### ---  Tilemap Stats Dashboard Web App  v6_07 ------########
 
 ## Script Working Status - This works, now using a google sheet from my work account.
 
 
 ## This version is a branch of v6, I preferred the stats bar graph count in v6 as it worked.
-## I have branched this v6_06 to try and get this working with the improvements in v33
-## This version v6_06 has the best version of the top level Stats.
+## I have branched this v6_07 to remove the visual tilemap at the bottom for now.
+## This version v6_07 has the best version of the top level Stats.
 ## The Station Assignments list was probably better in 33, but this version works (v33 also listed the section coloured grey)
 
 
@@ -23,7 +23,7 @@
 ## This script requires the following installed: 
 ## py -m pip install streamlit pandas gspread gspread-formatting google-auth matplotlib
 
-# --- Run this using the command streamlit run app_v6_06.py
+# --- Run this using the command streamlit run app_v6_07.py
 
 import streamlit as st
 import pandas as pd
@@ -93,8 +93,8 @@ def get_dashboard_data():
     return data, response
 
 # --- UI Header ---
-st.set_page_config(page_title="Game Map Tile Tracker v6_06", layout="wide")
-st.title("🗺️ TileMap Live Progress Dashboard v6_06")
+st.set_page_config(page_title="Game Map Tile Tracker v6_07", layout="wide")
+st.title("🗺️ TileMap Live Progress Dashboard v6_07")
 
 with st.spinner('Syncing with Google Sheets...'):
     try:
@@ -271,100 +271,3 @@ with col_right:
     st.subheader("Station Assignments")
     st.dataframe(df_stations, use_container_width=True, hide_index=True)
    
-
-
-
-
-### ---------------------------- VISUAL TILEMAP FROM v33 ------------------------------- ###
-
-legend_colorsB = {"25": None, "50": None, "75": None, "100": None}
-map_points = [] 
-
-
-try:
-    row_data = formatting_response.get('sheets', [{}])[0].get('data', [{}])[0].get('rowData', [])
-except:
-    row_data = []
-
-
-# --- STEP A: Legend Calibration ---
-
-
-for r_idx in range(0, 15):
-    if r_idx < len(raw_data):
-        for col_idx, text_val in enumerate(raw_data[r_idx]):
-            txt = str(text_val).strip()
-            cell_dataB = row_data[r_idx]['values'][col_idx] if 'values' in row_data[r_idx] and col_idx < len(row_data[r_idx]['values']) else {}
-            num_valB = cell_dataB.get('effectiveValue', {}).get('numberValue', -1)
-
-            if txt in target_labels or num_val in [0.25, 0.5, 0.75, 1.0]:
-                label_keyB = "25" if ("25" in txt or num_val == 0.25) else \
-                            "50" if ("5" in txt or num_val == 0.5) else \
-                            "75" if ("75" in txt or num_val == 0.75) else "100"
-                
-                for offset in [1, 2]:
-                    if col_idx - offset >= 0:
-                        prev_cell = row_data[r_idx]['values'][col_idx - offset]
-                        bgB = prev_cell.get('effectiveFormat', {}).get('backgroundColor', {})
-                        if bg and not (bgB.get('red', 1) == 1 and bgB.get('green', 1) == 1 and bgB.get('blue', 1) == 1):
-                            legend_colorsB[label_keyB] = (bgB.get('red', 0), bgB.get('green', 0), bgB.get('blue', 0))
-                            break
-
-# --- STEP B: Universal Processing Engine ---
-def colors_matchB(rgb1, rgb2, tol=0.15): 
-    if rgb1 is None or rgb2 is None: return False
-    return all(abs(a - b) < tol for a, b in zip(rgb1, rgb2))
-
-def clean_coordB(val):
-    try:
-        cleaned = re.sub(r'[^0-9/-]', '', val)
-        parts = cleaned.split("/")
-        if len(parts) == 2:
-            return int(parts[0]), int(parts[1])
-    except:
-        return None
-
-for r_idx, row in enumerate(row_data):
-    if r_idx < 14 or r_idx >= len(raw_data): continue 
-    
-    if 'values' in row:
-        for c_idx, cell in enumerate(row['values']):
-            tile_name = str(raw_data[r_idx][c_idx]).strip() if c_idx < len(raw_data[r_idx]) else ""
-            
-            coords = clean_coordB(tile_name)
-            if coords:
-                bgB = cell.get('effectiveFormat', {}).get('backgroundColor', {'red': 1, 'green': 1, 'blue': 1})
-                curr_rgb = (bgB.get('red', 0), bgB.get('green', 0), bgB.get('blue', 0))
-                actual_hex = mcolors.to_hex(curr_rgb)
-
-                is_colored = False
-                if colors_matchB(curr_rgb, legend_colorsB["25"]): 
-                    tiles_25 += 1; is_colored = True
-                elif colors_matchB(curr_rgb, legend_colorsB["50"]): 
-                    tiles_50 += 1; is_colored = True
-                elif colors_matchB(curr_rgb, legend_colorsB["75"]): 
-                    tiles_75 += 1; is_colored = True
-                elif colors_matchB(curr_rgb, legend_colorsB["100"]): 
-                    tiles_100 += 1; is_colored = True
-                
-                if not is_colored:
-                    tiles_0 += 1
-
-                x, y = coords
-                map_points.append({'x': x, 'y': y, 'color': actual_hex, 'name': tile_name})
-
-
-st.subheader("📍 Interactive Visual TileMap")
-if map_points:
-    df_map = pd.DataFrame(map_points)
-    fig_map = go.Figure(go.Scatter(
-        x=df_map['x'], y=df_map['y'], mode='markers',
-        marker=dict(size=18, symbol='square', color=df_map['color'], line=dict(width=1, color='DarkSlateGrey')),
-        text=df_map['name'], hoverinfo='text'
-    ))
-    fig_map.update_layout(
-        plot_bgcolor=COLOR_GRID, width=1000, height=800,
-        xaxis=dict(scaleanchor="y", scaleratio=1, side='top'),
-        yaxis=dict(autorange="reversed") 
-    )
-    st.plotly_chart(fig_map, use_container_width=True)
