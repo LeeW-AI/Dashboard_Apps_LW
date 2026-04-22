@@ -1,4 +1,38 @@
-# app_v36 - Gemini's latest version with v6_07 (top stats section) and v35 (visual tilemap) combined
+####### ---  Tilemap Stats Dashboard Web App v36  ------########
+
+## Script Working Status - This is the first working version with combined Top Level Stats, Bar Graph and Stations Assignments with Visual Tilemap working at the bottom.
+
+
+## NOTES FOR BUGS:
+## Tile numbers must be the correct format -94/-263 or they will not be counted/coloured in the Dashboard
+
+
+
+## -------------------------------------------------------------------------------------------- ##
+
+## New Features to add:
+
+
+
+
+## For this to work I have shared TileMap_DashboardTest_LW with the email account in the credentials.json as a viewer
+## This allows the script to access the google sheet.
+## This script is using my own personal gmail account for API access, might need to share with that account too.
+
+## You can refresh the Web App once loaded to refresh the stats when you update the sheet.
+
+## When running the script in windows, if you CTRL+C a few times in the command prompt it will exit the script running
+## you can then hit the up arrow to get the run command from history to run it again quickly
+## This saves opening a new command window to test it again.
+
+
+## This script requires the following installed: 
+## py -m pip install streamlit pandas gspread gspread-formatting google-auth matplotlib plotly
+
+# --- Run this using the command streamlit run app_v36.py
+
+
+
 import streamlit as st
 import pandas as pd
 import gspread
@@ -155,4 +189,3 @@ if map_points:
         yaxis=dict(autorange="reversed") 
     )
     st.plotly_chart(fig_map, use_container_width=True)
-
