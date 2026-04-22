@@ -4,7 +4,9 @@
 
 
 ## This version is a branch of v6, I preferred the stats bar graph count in v6 as it worked.
-## I have branched this v6_02 to try and get this working with the improvements in v33
+## I have branched this v6_06 to try and get this working with the improvements in v33
+## This version v6_06 has the best version of the top level Stats.
+## The Station Assignments list was probably better in 33, but this version works (v33 also listed the section coloured grey)
 
 
 ## For this to work I have shared TileMap_DashboardTest_LW with the email account in the credentials.json as a viewer
