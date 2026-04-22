@@ -66,20 +66,19 @@ COLOR_GRID = '#f8f9fb'
 # --- 1. Authenticate ---
 
 @st.cache_resource
+
 def get_creds():
-    scopes = ["https://www.googleapis.com/auth/spreadsheets.readonly", 
-              "https://www.googleapis.com/auth/drive.readonly"]
+    scopes = ["https://www.googleapis.com/auth/spreadsheets.readonly", "https://www.googleapis.com/auth/drive.readonly"]
     
-    # 1. Check for Streamlit Secrets (for the public Web App)
+    # 1. Try to load from Streamlit Secrets (for iPad/Web)
     if "gcp_service_account" in st.secrets:
         return Credentials.from_service_account_info(
             st.secrets["gcp_service_account"], 
             scopes=scopes
         )
     
-    # 2. Fallback to local file (for your PC development)
+    # 2. Fallback to local file (for PC)
     return Credentials.from_service_account_file("credentials.json", scopes=scopes)
-
 
 
 
