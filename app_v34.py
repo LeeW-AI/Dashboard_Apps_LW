@@ -91,6 +91,7 @@ for r_idx in range(0, 15):
 
 
 # --- STEP B: Core Loop (Counting + Map Building) ---
+# Reset all counters
 tiles_25 = tiles_50 = tiles_75 = tiles_100 = tiles_0 = 0
 map_points = []
 
@@ -101,44 +102,35 @@ for r_idx, row in enumerate(row_data):
     if 'values' in row:
         current_text_row = raw_data[r_idx]
         for c_idx, cell in enumerate(row['values']):
-            # Safety check for column alignment
             if c_idx >= len(current_text_row):
                 continue
                 
             tile_name = str(current_text_row[c_idx]).strip()
             coords = clean_coord(tile_name)
             
+            # --- LOGIC 1: THE OLD V6_07 METHOD (For Top Stats & Bar Graph) ---
+            # v6_07 relied specifically on userEnteredFormat for counting
+            user_bg = cell.get('userEnteredFormat', {}).get('backgroundColor')
+            if user_bg:
+                user_rgb = (user_bg.get('red', 0), user_bg.get('green', 0), user_bg.get('blue', 0))
+                
+                # Filter out pure white or empty cells
+                if sum(user_rgb) < 2.9 and sum(user_rgb) > 0:
+                    if colors_match(user_rgb, legend_colors["25"]): tiles_25 += 1
+                    elif colors_match(user_rgb, legend_colors["50"]): tiles_50 += 1
+                    elif colors_match(user_rgb, legend_colors["75"]): tiles_75 += 1
+                    elif colors_match(user_rgb, legend_colors["100"]): tiles_100 += 1
+
+            # --- LOGIC 2: THE NEW V35 METHOD (For Visual TileMap Only) ---
+            # We use effectiveFormat here to ensure the map looks exactly like the sheet
             if coords:
-                # 1. THE FIX: Check effectiveFormat FIRST, then fallback to userEnteredFormat
-                bg = cell.get('effectiveFormat', {}).get('backgroundColor')
-                if not bg:
-                    bg = cell.get('userEnteredFormat', {}).get('backgroundColor', {'red': 1, 'green': 1, 'blue': 1})
+                eff_bg = cell.get('effectiveFormat', {}).get('backgroundColor', {'red': 1, 'green': 1, 'blue': 1})
+                eff_hex = mcolors.to_hex((eff_bg.get('red', 0), eff_bg.get('green', 0), eff_bg.get('blue', 0)))
                 
-                curr_rgb = (bg.get('red', 0), bg.get('green', 0), bg.get('blue', 0))
-                
-                # 2. Skip white/empty cells to avoid cluttering stats
-                if sum(curr_rgb) > 2.8: # Close to pure white (1,1,1)
-                    tiles_0 += 1
-                    matched = False
-                else:
-                    matched = False
-                    for key in ["25", "50", "75", "100"]:
-                        if legend_colors[key] and colors_match(curr_rgb, legend_colors[key]):
-                            if key == "25": tiles_25 += 1
-                            elif key == "50": tiles_50 += 1
-                            elif key == "75": tiles_75 += 1
-                            elif key == "100": tiles_100 += 1
-                            matched = True
-                            break
-                    
-                    if not matched: 
-                        tiles_0 += 1
-                
-                # 3. Add to map points for the visual dashboard
                 map_points.append({
                     'x': coords[0], 
                     'y': coords[1], 
-                    'color': mcolors.to_hex(curr_rgb), 
+                    'color': eff_hex, 
                     'name': tile_name
                 })
 
