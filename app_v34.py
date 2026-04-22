@@ -91,15 +91,17 @@ for r_idx in range(0, 15):
 
 
 # --- STEP B: Core Loop (Counting + Map Building) ---
+tiles_25 = tiles_50 = tiles_75 = tiles_100 = tiles_0 = 0
+map_points = []
+
 for r_idx, row in enumerate(row_data):
-    # Skip header rows
     if r_idx < 14 or r_idx >= len(raw_data): 
         continue 
     
     if 'values' in row:
         current_text_row = raw_data[r_idx]
         for c_idx, cell in enumerate(row['values']):
-            # SAFETY CHECK: Ensure the column index exists in the raw text data
+            # Safety check for column alignment
             if c_idx >= len(current_text_row):
                 continue
                 
@@ -107,33 +109,38 @@ for r_idx, row in enumerate(row_data):
             coords = clean_coord(tile_name)
             
             if coords:
-                # Use effectiveFormat (v35) but fallback to userEnteredFormat (v6_07)
-                bg = cell.get('effectiveFormat', {}).get('backgroundColor', 
-                     cell.get('userEnteredFormat', {}).get('backgroundColor', {'red': 1, 'green': 1, 'blue': 1}))
+                # 1. THE FIX: Check effectiveFormat FIRST, then fallback to userEnteredFormat
+                bg = cell.get('effectiveFormat', {}).get('backgroundColor')
+                if not bg:
+                    bg = cell.get('userEnteredFormat', {}).get('backgroundColor', {'red': 1, 'green': 1, 'blue': 1})
                 
                 curr_rgb = (bg.get('red', 0), bg.get('green', 0), bg.get('blue', 0))
                 
-                matched = False
-                for key in ["25", "50", "75", "100"]:
-                    if legend_colors[key] and colors_match(curr_rgb, legend_colors[key]):
-                        if key == "25": tiles_25 += 1
-                        elif key == "50": tiles_50 += 1
-                        elif key == "75": tiles_75 += 1
-                        elif key == "100": tiles_100 += 1
-                        matched = True
-                        break
-                
-                if not matched: 
+                # 2. Skip white/empty cells to avoid cluttering stats
+                if sum(curr_rgb) > 2.8: # Close to pure white (1,1,1)
                     tiles_0 += 1
+                    matched = False
+                else:
+                    matched = False
+                    for key in ["25", "50", "75", "100"]:
+                        if legend_colors[key] and colors_match(curr_rgb, legend_colors[key]):
+                            if key == "25": tiles_25 += 1
+                            elif key == "50": tiles_50 += 1
+                            elif key == "75": tiles_75 += 1
+                            elif key == "100": tiles_100 += 1
+                            matched = True
+                            break
+                    
+                    if not matched: 
+                        tiles_0 += 1
                 
+                # 3. Add to map points for the visual dashboard
                 map_points.append({
                     'x': coords[0], 
                     'y': coords[1], 
                     'color': mcolors.to_hex(curr_rgb), 
                     'name': tile_name
                 })
-
-
 
 
 
