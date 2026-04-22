@@ -5,3 +5,6 @@ gspread-formatting
 google-auth
 matplotlib
 plotly
+re
+numpy
+
