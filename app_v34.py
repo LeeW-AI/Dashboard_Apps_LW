@@ -138,9 +138,21 @@ with col_r:
     stations = [{'Station': str(raw_data[i][2]), 'Tile': str(raw_data[i][3]), 'Assignee': str(raw_data[i][4])} for i in range(10, min(45, len(raw_data))) if len(raw_data[i]) > 4 and str(raw_data[i][2]).strip() not in ['nan', 'None', 'Tile']]
     st.dataframe(pd.DataFrame(stations), hide_index=True)
 
-st.subheader("📍 Visual TileMap")
+
+
+
+st.subheader("📍 Interactive Visual TileMap")
 if map_points:
     df_map = pd.DataFrame(map_points)
-    fig_map = go.Figure(go.Scatter(x=df_map['x'], y=df_map['y'], mode='markers', marker=dict(size=18, symbol='square', color=df_map['color'], line=dict(width=1, color='DarkSlateGrey')), text=df_map['name'], hoverinfo='text'))
-    fig_map.update_layout(plot_bgcolor=COLOR_GRID, xaxis=dict(scaleanchor="y", scaleratio=1, side='top'), yaxis=dict(autorange="reversed"))
+    fig_map = go.Figure(go.Scatter(
+        x=df_map['x'], y=df_map['y'], mode='markers',
+        marker=dict(size=18, symbol='square', color=df_map['color'], line=dict(width=1, color='DarkSlateGrey')),
+        text=df_map['name'], hoverinfo='text'
+    ))
+    fig_map.update_layout(
+        plot_bgcolor=COLOR_GRID, width=1000, height=800,
+        xaxis=dict(scaleanchor="y", scaleratio=1, side='top'),
+        yaxis=dict(autorange="reversed") 
+    )
     st.plotly_chart(fig_map, use_container_width=True)
+
