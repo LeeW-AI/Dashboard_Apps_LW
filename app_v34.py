@@ -50,6 +50,7 @@ import matplotlib.colors as mcolors
 import re
 import numpy as np
 import plotly.graph_objects as go
+import os
 
 # --- CONFIGURABLE SETTINGS ---
 totalTiles = 107
@@ -63,10 +64,29 @@ COLOR_100 = '#00ff00' # Green
 COLOR_GRID = '#f8f9fb'
 
 # --- 1. Authenticate ---
+
 @st.cache_resource
 def get_creds():
-    scopes = ["https://www.googleapis.com/auth/spreadsheets.readonly", "https://www.googleapis.com/auth/drive.readonly"]
+    scopes = ["https://www.googleapis.com/auth/spreadsheets.readonly", 
+              "https://www.googleapis.com/auth/drive.readonly"]
+    
+    # 1. Check for Streamlit Secrets (for the public Web App)
+    if "gcp_service_account" in st.secrets:
+        return Credentials.from_service_account_info(
+            st.secrets["gcp_service_account"], 
+            scopes=scopes
+        )
+    
+    # 2. Fallback to local file (for your PC development)
     return Credentials.from_service_account_file("credentials.json", scopes=scopes)
+
+
+
+
+# commented out PC code for credentials, not needed at the moment
+#def get_creds():
+#    scopes = ["https://www.googleapis.com/auth/spreadsheets.readonly", "https://www.googleapis.com/auth/drive.readonly"]
+#    return Credentials.from_service_account_file("credentials.json", scopes=scopes)
 
 creds = get_creds()
 client = gspread.authorize(creds)
