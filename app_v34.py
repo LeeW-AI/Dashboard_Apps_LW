@@ -1,4 +1,4 @@
-####### ---  Tilemap Stats Dashboard Web App v34  ------########
+####### ---  Tilemap Stats Dashboard Web App v35  ------########
 
 ## Script Working Status - Still not working as good as v6 with the top colour counting stats - still fixing this
 ## Have updated the top Stats to show the variable for tile count, percentage breakdown and man days properly calculated.
@@ -38,7 +38,7 @@
 ## This script requires the following installed: 
 ## py -m pip install streamlit pandas gspread gspread-formatting google-auth matplotlib plotly
 
-# --- Run this using the command streamlit run app_v34.py
+# --- Run this using the command streamlit run app_v35.py
 
 import streamlit as st
 import pandas as pd
@@ -100,8 +100,8 @@ def get_dashboard_data():
     response = session.get(url).json()
     return data, response
 
-st.set_page_config(page_title="Game Map Tile Tracker v34", layout="wide")
-st.title("🗺️ TileMap Live Progress Dashboard v34")
+st.set_page_config(page_title="Game Map Tile Tracker v35", layout="wide")
+st.title("🗺️ TileMap Live Progress Dashboard v35")
 
 with st.spinner('Calibrating all progress colors...'):
     try:
