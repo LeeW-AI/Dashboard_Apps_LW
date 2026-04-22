@@ -64,10 +64,12 @@ for r_idx in range(0, 15):
                             legend_colors[label_key] = (bg.get('red', 0), bg.get('green', 0), bg.get('blue', 0))
                             break
 
-# --- 4. Step B: Processing (Split for Accuracy) ---
+
+# --- 4. Step B: Processing (Split for Accuracy with Index Protection) ---
 tiles_25 = tiles_50 = tiles_75 = tiles_100 = 0
 map_points = []
 
+# Logic functions preserved from working versions
 def colors_match(rgb1, rgb2, tol=0.1): 
     if rgb1 is None or rgb2 is None: return False
     return all(abs(a - b) < tol for a, b in zip(rgb1, rgb2))
@@ -78,26 +80,42 @@ def clean_coord(val):
     return (int(parts[0]), int(parts[1])) if len(parts) == 2 else None
 
 for r_idx, row in enumerate(row_data):
-    if r_idx < 14: continue 
+    # 1. Skip headers and ensure r_idx exists in raw_data text
+    if r_idx < 14 or r_idx >= len(raw_data): 
+        continue 
+    
     if 'values' in row:
+        current_text_row = raw_data[r_idx]
         for c_idx, cell in enumerate(row['values']):
-            # Counting Logic (v6_07 style)
+            
+            # --- V6_07 LOGIC: COUNTS (Stats & Bar Graph) ---
             user_bg = cell.get('userEnteredFormat', {}).get('backgroundColor')
             if user_bg:
                 u_rgb = (user_bg.get('red', 0), user_bg.get('green', 0), user_bg.get('blue', 0))
+                # Skip white/empty cells
                 if sum(u_rgb) < 2.9 and sum(u_rgb) > 0:
                     if colors_match(u_rgb, legend_colors["25"]): tiles_25 += 1
                     elif colors_match(u_rgb, legend_colors["50"]): tiles_50 += 1
                     elif colors_match(u_rgb, legend_colors["75"]): tiles_75 += 1
                     elif colors_match(u_rgb, legend_colors["100"]): tiles_100 += 1
             
-            # Map Logic (v35 style)
-            if c_idx < len(raw_data[r_idx]):
-                tile_name = str(raw_data[r_idx][c_idx]).strip()
+            # --- V35 LOGIC: VISUAL MAP (Interactive Plotly) ---
+            # 2. SAFETY CHECK: Ensure column index exists in this specific row
+            if c_idx < len(current_text_row):
+                tile_name = str(current_text_row[c_idx]).strip()
                 coords = clean_coord(tile_name)
+                
                 if coords:
+                    # Use effectiveFormat so the map shows conditional formatting too
                     eff_bg = cell.get('effectiveFormat', {}).get('backgroundColor', {'red': 1, 'green': 1, 'blue': 1})
-                    map_points.append({'x': coords[0], 'y': coords[1], 'color': mcolors.to_hex((eff_bg.get('red', 0), eff_bg.get('green', 0), eff_bg.get('blue', 0))), 'name': tile_name})
+                    map_points.append({
+                        'x': coords[0], 
+                        'y': coords[1], 
+                        'color': mcolors.to_hex((eff_bg.get('red', 0), eff_bg.get('green', 0), eff_bg.get('blue', 0))), 
+                        'name': tile_name
+                    })
+
+
 
 # --- 5. UI Build ---
 # Top Stats
