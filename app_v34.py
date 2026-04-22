@@ -73,66 +73,66 @@ def clean_coord(val):
     parts = cleaned.split("/")
     return (int(parts[0]), int(parts[1])) if len(parts) == 2 else None
 
-# STEP A: Legend Calibration (v35 Logic)
-target_labels = ["0.25", ".25", "25%", "0.5", "50%", "0.75", "75%", "1", "100%"]
-for r_idx in range(0, 15):
+
+# --- STEP A: Legend Calibration (v6_07 Logic) ---
+legend_colors = {"25": None, "50": None, "75": None, "100": None}
+target_labels = ["0.25", ".25", "25%", "0.5", "0.50", ".5", "50%", "0.75", ".75", "75%", "1", "1.0", "100%"]
+
+for r_idx in range(0, 20): # Scan first 20 rows
     if r_idx < len(raw_data):
         for col_idx, text_val in enumerate(raw_data[r_idx]):
-            txt = str(text_val).strip()
-            if txt in target_labels:
-                label_key = "25" if "25" in txt else "50" if "5" in txt else "75" if "75" in txt else "100"
+            clean_val = str(text_val).strip()
+            
+            if clean_val in target_labels:
+                # Map label to key
+                label_key = "25" if "25" in clean_val else \
+                            "50" if "5" in clean_val else \
+                            "75" if "75" in clean_val else "100"
+                
+                # Check 1 or 2 cells to the LEFT for the color sample
                 for offset in [1, 2]:
                     if col_idx - offset >= 0:
-                        cell = row_data[r_idx]['values'][col_idx - offset]
-                        bg = cell.get('effectiveFormat', {}).get('backgroundColor', {})
+                        cell_fmt = row_data[r_idx]['values'][col_idx - offset]
+                        # Use userEnteredFormat specifically for counting logic (v6 style)
+                        bg = cell_fmt.get('userEnteredFormat', {}).get('backgroundColor')
                         if bg and not (bg.get('red', 1) == 1 and bg.get('green', 1) == 1 and bg.get('blue', 1) == 1):
                             legend_colors[label_key] = (bg.get('red', 0), bg.get('green', 0), bg.get('blue', 0))
                             break
 
-
-# --- STEP B: Core Loop (Counting + Map Building) ---
-# Reset all counters
+# --- STEP B: Split Logic (v6 Stats + v35 Visuals) ---
 tiles_25 = tiles_50 = tiles_75 = tiles_100 = tiles_0 = 0
 map_points = []
 
 for r_idx, row in enumerate(row_data):
-    if r_idx < 14 or r_idx >= len(raw_data): 
-        continue 
+    if r_idx < 14 or r_idx >= len(raw_data): continue 
     
     if 'values' in row:
         current_text_row = raw_data[r_idx]
         for c_idx, cell in enumerate(row['values']):
-            if c_idx >= len(current_text_row):
-                continue
+            if c_idx >= len(current_text_row): continue
                 
             tile_name = str(current_text_row[c_idx]).strip()
             coords = clean_coord(tile_name)
             
-            # --- LOGIC 1: THE OLD V6_07 METHOD (For Top Stats & Bar Graph) ---
-            # v6_07 relied specifically on userEnteredFormat for counting
+            # --- V6_07 LOGIC: COUNTS ---
             user_bg = cell.get('userEnteredFormat', {}).get('backgroundColor')
             if user_bg:
-                user_rgb = (user_bg.get('red', 0), user_bg.get('green', 0), user_bg.get('blue', 0))
-                
-                # Filter out pure white or empty cells
-                if sum(user_rgb) < 2.9 and sum(user_rgb) > 0:
-                    if colors_match(user_rgb, legend_colors["25"]): tiles_25 += 1
-                    elif colors_match(user_rgb, legend_colors["50"]): tiles_50 += 1
-                    elif colors_match(user_rgb, legend_colors["75"]): tiles_75 += 1
-                    elif colors_match(user_rgb, legend_colors["100"]): tiles_100 += 1
+                u_rgb = (user_bg.get('red', 0), user_bg.get('green', 0), user_bg.get('blue', 0))
+                if sum(u_rgb) < 2.9: # Skip white
+                    if colors_match(u_rgb, legend_colors["25"]): tiles_25 += 1
+                    elif colors_match(u_rgb, legend_colors["50"]): tiles_50 += 1
+                    elif colors_match(u_rgb, legend_colors["75"]): tiles_75 += 1
+                    elif colors_match(u_rgb, legend_colors["100"]): tiles_100 += 1
 
-            # --- LOGIC 2: THE NEW V35 METHOD (For Visual TileMap Only) ---
-            # We use effectiveFormat here to ensure the map looks exactly like the sheet
+            # --- V35 LOGIC: VISUAL MAP ---
             if coords:
                 eff_bg = cell.get('effectiveFormat', {}).get('backgroundColor', {'red': 1, 'green': 1, 'blue': 1})
-                eff_hex = mcolors.to_hex((eff_bg.get('red', 0), eff_bg.get('green', 0), eff_bg.get('blue', 0)))
-                
                 map_points.append({
-                    'x': coords[0], 
-                    'y': coords[1], 
-                    'color': eff_hex, 
+                    'x': coords[0], 'y': coords[1], 
+                    'color': mcolors.to_hex((eff_bg.get('red', 0), eff_bg.get('green', 0), eff_bg.get('blue', 0))),
                     'name': tile_name
                 })
+
 
 
 
