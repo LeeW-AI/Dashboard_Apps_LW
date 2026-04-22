@@ -67,6 +67,8 @@ COLOR_GRID = '#f8f9fb'
 
 @st.cache_resource
 
+# This is the new method of loading credentials from Streamlit Cloud using a secret box to hide the details as it's on a public repo
+
 def get_creds():
     scopes = ["https://www.googleapis.com/auth/spreadsheets.readonly", "https://www.googleapis.com/auth/drive.readonly"]
     
