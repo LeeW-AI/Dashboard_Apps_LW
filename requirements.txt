@@ -1,0 +1,7 @@
+streamlit
+pandas
+gspread
+gspread-formatting
+google-auth
+matplotlib
+plotly
