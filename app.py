@@ -1,6 +1,6 @@
-####### ---  Tilemap Stats Dashboard Web App v45  ------########
+####### ---  Tilemap Stats Dashboard Web App v46  ------########
 
-## Script Working Status - This is working well, now has Milestone stat tracking added to v42 baseline
+## Script Working Status - 
 
 
 ## v37 updated to now uses either a Streamlit Community Cloud Secrets file, or a local file in .streamlit\secrets.toml
@@ -12,6 +12,7 @@
 ## v43 Used v42 as the baseline, adding Milestone tracking functionaliy to the Stats, this worked, but lost other stats and Legends, re-add in v44
 ## v44 Adding Milestone tracking to v42 for complete Dashboard - nearly working.
 ## v45 Fixing the Milestone tracking to add the missing colours.
+## v46 Some minor UI cleanup
 
 
 ## NOTES FOR BUGS:
@@ -22,7 +23,10 @@
 ## -------------------------------------------------------------------------------------------- ##
 
 ## New Features to add:
-
+## Add Station Name to hover stats on Visual Tilemap if tile has a Station
+## Update Man Days Count to be a better reflection of what's left (Should we add the other tasks done after scenery)
+## Improve the look of the UI
+## 
 
 
 
@@ -40,9 +44,9 @@
 ## This script requires the following installed: 
 ## py -m pip install streamlit pandas gspread gspread-formatting google-auth matplotlib plotly
 
-# --- Run this using the command streamlit run app_v45.py
+# --- Run this using the command streamlit run app_v46.py
 
-####### ---  Tilemap Stats Dashboard Web App v45  ------########
+####### ---  Tilemap Stats Dashboard Web App v46  ------########
 
 import streamlit as st
 import pandas as pd
@@ -132,8 +136,8 @@ def get_dashboard_data():
     response = session.get(url).json()
     return raw_main, raw_milestone, response
 
-st.set_page_config(page_title="TileMap Stats Dashboard v45", layout="wide")
-st.title("📊 TileMap Stats Dashboard v45")
+st.set_page_config(page_title="TileMap Stats Dashboard v46", layout="wide")
+st.title("📊 TileMap Stats Dashboard v46")
 
 raw_main, raw_milestone, formatting_response = get_dashboard_data()
 row_data = formatting_response.get('sheets', [{}])[0].get('data', [{}])[0].get('rowData', [])
@@ -276,7 +280,6 @@ with col_l:
     ax.bar_label(ax.containers[0], padding=3)
     st.pyplot(fig)
     
-    st.write("---")
     st.caption("Graph Color Legend (Editable in Script)")
     leg_1, leg_2, leg_3, leg_4 = st.columns(4)
     leg_1.markdown(f"🔴 **25%:** `{COLOR_25}`"); leg_2.markdown(f"🟠 **50%:** `{COLOR_50}`")
