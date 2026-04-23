@@ -219,6 +219,8 @@ for r_idx, row in enumerate(row_data):
 remaining_work = (totalTiles - tiles_100) - ((tiles_25 * 0.25) + (tiles_50 * 0.5) + (tiles_75 * 0.75))
 man_days = round(remaining_work * MAN_DAY_MULTIPLIER)
 
+st.divider()
+
 m_cols = st.columns(7)
 m_cols[0].metric("Total", totalTiles)
 m_cols[1].metric("Started", tiles_25+tiles_50+tiles_75)
