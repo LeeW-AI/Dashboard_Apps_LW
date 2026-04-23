@@ -311,6 +311,10 @@ with col_r:
             # Get color from our lookup, default to white if not found
             bg_color = tile_color_lookup.get(val, "#ffffff")
             
+            # Ensure bg_color is a string to prevent errors
+            if not isinstance(bg_color, str):
+                bg_color = "#ffffff"
+                
             # Calculate text color (white for dark backgrounds, black for light)
             rgb = mcolors.to_rgb(bg_color)
             brightness = mcolors.rgb_to_hsv(rgb)[2]
@@ -318,14 +322,13 @@ with col_r:
             
             return f'background-color: {bg_color}; color: {text_color}'
 
-        # 3. Apply the style only to the 'Tile' column
-        styled_df = df_stations.style.applymap(color_tiles, subset=['Tile'])
+        # 3. THE FIX: Changed .applymap() to .map() for Pandas 3.0+ compatibility
+        styled_df = df_stations.style.map(color_tiles, subset=['Tile'])
 
         # 4. Display the styled dataframe
         st.dataframe(styled_df, hide_index=True, use_container_width=True, height=600)
     else:
-        st.write("No station assignments found.")   
-        
+        st.write("No station assignments found.")        
           
 st.divider()
    
