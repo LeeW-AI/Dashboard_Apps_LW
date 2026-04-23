@@ -220,9 +220,12 @@ remaining_work = (totalTiles - tiles_100) - ((tiles_25 * 0.25) + (tiles_50 * 0.5
 man_days = round(remaining_work * MAN_DAY_MULTIPLIER)
 
 m_cols = st.columns(7)
-m_cols[0].metric("Total", totalTiles); m_cols[1].metric("Started", tiles_25+tiles_50+tiles_75)
-m_cols[2].metric("25%", tiles_25); m_cols[3].metric("50%", tiles_50)
-m_cols[4].metric("75%", tiles_75); m_cols[5].metric("100%", tiles_100)
+m_cols[0].metric("Total", totalTiles)
+m_cols[1].metric("Started", tiles_25+tiles_50+tiles_75)
+m_cols[2].metric("25%", tiles_25)
+m_cols[3].metric("50%", tiles_50)
+m_cols[4].metric("75%", tiles_75)
+m_cols[5].metric("100%", tiles_100)
 m_cols[6].metric("Man Days Left", f"{man_days}d")
 
 st.divider()
