@@ -1,4 +1,4 @@
-####### ---  Tilemap Stats Dashboard Web App v46  ------########
+####### ---  Tilemap Stats Dashboard Web App v47  ------########
 
 ## Script Working Status - 
 
@@ -13,6 +13,7 @@
 ## v44 Adding Milestone tracking to v42 for complete Dashboard - nearly working.
 ## v45 Fixing the Milestone tracking to add the missing colours.
 ## v46 Some minor UI cleanup
+## v47 Some new features - add tile colours to Station Assignments list
 
 
 ## NOTES FOR BUGS:
@@ -44,9 +45,9 @@
 ## This script requires the following installed: 
 ## py -m pip install streamlit pandas gspread gspread-formatting google-auth matplotlib plotly
 
-# --- Run this using the command streamlit run app_v46.py
+# --- Run this using the command streamlit run app_v47.py
 
-####### ---  Tilemap Stats Dashboard Web App v46  ------########
+####### ---  Tilemap Stats Dashboard Web App v47  ------########
 
 import streamlit as st
 import pandas as pd
@@ -136,8 +137,8 @@ def get_dashboard_data():
     response = session.get(url).json()
     return raw_main, raw_milestone, response
 
-st.set_page_config(page_title="TileMap Stats Dashboard v46", layout="wide")
-st.title("📊 TileMap Stats Dashboard v46")
+st.set_page_config(page_title="TileMap Stats Dashboard v47", layout="wide")
+st.title("📊 TileMap Stats Dashboard v47")
 
 raw_main, raw_milestone, formatting_response = get_dashboard_data()
 row_data = formatting_response.get('sheets', [{}])[0].get('data', [{}])[0].get('rowData', [])
@@ -292,13 +293,40 @@ with col_l:
 
 with col_r:
     st.subheader("Station Assignments")
-    stations = [
-        {'Station': str(raw_main[i][2]), 'Tile': str(raw_main[i][3]), 'Artist': str(raw_main[i][4])} 
-        for i in range(10, min(45, len(raw_main))) 
-        if len(raw_main[i]) > 4 and str(raw_main[i][2]).strip() not in ['nan', 'None', 'Tile'] and str(raw_main[i][2]).strip() != ""
-    ]
-    st.dataframe(pd.DataFrame(stations), hide_index=True, use_container_width=True, height=600)
     
+    # 1. Create the list of assignments
+    stations_data = [
+        {'Station': str(raw_main[i][2]).strip(), 
+         'Tile': str(raw_main[i][3]).strip(), 
+         'Artist': str(raw_main[i][4]).strip()} 
+        for i in range(10, min(45, len(raw_main))) 
+        if len(raw_main[i]) > 4 and str(raw_main[i][2]).strip() not in ['nan', 'None', 'Tile', ""]
+    ]
+    
+    if stations_data:
+        df_stations = pd.DataFrame(stations_data)
+
+        # 2. Define a function to map the tile coordinate to its background color
+        def color_tiles(val):
+            # Get color from our lookup, default to white if not found
+            bg_color = tile_color_lookup.get(val, "#ffffff")
+            
+            # Calculate text color (white for dark backgrounds, black for light)
+            rgb = mcolors.to_rgb(bg_color)
+            brightness = mcolors.rgb_to_hsv(rgb)[2]
+            text_color = "white" if brightness < 0.5 else "black"
+            
+            return f'background-color: {bg_color}; color: {text_color}'
+
+        # 3. Apply the style only to the 'Tile' column
+        styled_df = df_stations.style.applymap(color_tiles, subset=['Tile'])
+
+        # 4. Display the styled dataframe
+        st.dataframe(styled_df, hide_index=True, use_container_width=True, height=600)
+    else:
+        st.write("No station assignments found.")   
+        
+          
 st.divider()
    
 
