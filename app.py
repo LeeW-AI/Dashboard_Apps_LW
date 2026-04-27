@@ -65,7 +65,7 @@ TILEMAP_TAB     = st.secrets.get("TILEMAP_TAB", "Airedale_Wharfdale TileMap")
 LEGEND_TAB      = st.secrets.get("LEGEND_TAB", "Legend")
 TILEMAP_RANGE   = st.secrets.get("TILEMAP_RANGE", "I16:AW48")
 LEGEND_RANGE    = st.secrets.get("LEGEND_RANGE", "A1:E12")
-COLOUR_TOLERANCE = 15
+COLOUR_TOLERANCE = 25
 
 
 # ── Auth ─────────────────────────────────────────────────────────────────────────
