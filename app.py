@@ -65,8 +65,7 @@ TILEMAP_TAB     = st.secrets.get("TILEMAP_TAB", "Airedale_Wharfdale TileMap")
 LEGEND_TAB      = st.secrets.get("LEGEND_TAB", "Legend")
 TILEMAP_RANGE   = st.secrets.get("TILEMAP_RANGE", "I16:AW48")
 LEGEND_RANGE    = st.secrets.get("LEGEND_RANGE", "A1:E12")
-COLOUR_TOLERANCE = 25
-
+COLOUR_TOLERANCE = 15
 
 # ── Auth ─────────────────────────────────────────────────────────────────────────
 
@@ -146,8 +145,9 @@ def load_all_data():
 
     sheet_data = grid_result["sheets"][0]["data"][0]
 
-    # ── Process Cells ────────────────────────────────────────────────────────────
-    tiles = []
+    # ── Pass 1: Read every cell — record its coordinate, colour, and raw value ────
+    all_cells = {}  # (x, y) → {tile, x, y, bg_hex}
+
     for row_data in sheet_data.get("rowData", []):
         for cell in row_data.get("values", []):
             cell_value = cell.get("formattedValue", "").strip()
@@ -162,35 +162,89 @@ def load_all_data():
                 continue
 
             bg_hex = extract_background_colour(cell)
+            all_cells[(x, y)] = {"tile": cell_value, "x": x, "y": y, "bg_hex": bg_hex}
 
-            # Check completion colour first
-            completion_match = best_colour_match(bg_hex, completions, "colour_hex") if bg_hex else None
-            completion_pct   = completion_match["pct"] if completion_match else 0
+    # ── Pass 2: Identify border cells per artist ──────────────────────────────────
+    # A border cell is one whose background matches an artist colour.
+    # Build a set of border coords and a per-artist bounding box.
 
-            # Then artist colour
-            artist_match = None
-            if bg_hex and not completion_match:
-                artist_match = best_colour_match(bg_hex, artists, "colour_hex")
+    border_coords = {}   # (x, y) → artist name  — used to exclude from interior count
+    artist_bounds = {}   # artist name → {min_x, max_x, min_y, max_y}
 
-            artist_name = (
-                artist_match["name"] if artist_match
-                else "IN_PROGRESS" if completion_match
-                else "UNASSIGNED"
-            )
+    for (x, y), cell in all_cells.items():
+        bg = cell["bg_hex"]
+        if not bg:
+            continue
+        # Check against completion colours first — skip those
+        if best_colour_match(bg, completions, "colour_hex"):
+            continue
+        match = best_colour_match(bg, artists, "colour_hex")
+        if match:
+            name = match["name"]
+            border_coords[(x, y)] = name
+            if name not in artist_bounds:
+                artist_bounds[name] = {"min_x": x, "max_x": x, "min_y": y, "max_y": y}
+            else:
+                b = artist_bounds[name]
+                b["min_x"] = min(b["min_x"], x)
+                b["max_x"] = max(b["max_x"], x)
+                b["min_y"] = min(b["min_y"], y)
+                b["max_y"] = max(b["max_y"], y)
 
-            tiles.append({
-                "tile": cell_value,
-                "x": x, "y": y,
-                "artist": artist_name,
-                "background_hex": bg_hex or "#FFFFFF",
-                "completion_pct": completion_pct,
-                "completion_label": completion_match["label"] if completion_match else (
-                    "Not Started" if bg_hex else "Empty"
-                ),
-                "is_done": completion_pct == 100,
-            })
+    # ── Pass 3: Assign interior tiles ────────────────────────────────────────────
+    # For each non-border cell, check if it falls strictly inside exactly one
+    # artist's bounding box. If multiple bounding boxes overlap, assign to the
+    # one with the smallest area (most specific region).
 
-    df = pd.DataFrame(tiles)
+    tiles = []
+
+    for (x, y), cell in all_cells.items():
+        bg_hex = cell["bg_hex"]
+
+        # ── Completion colour cells (in-progress tiles) ───────────────────────
+        # These are interior tiles that have been started — they have a
+        # completion colour but sit inside an artist's bounding box.
+        completion_match = best_colour_match(bg_hex, completions, "colour_hex") if bg_hex else None
+
+        if (x, y) in border_coords and not completion_match:
+            # This is a pure border cell — skip from tile counts
+            continue
+
+        # Find which artist(s) bounding box this coordinate falls strictly inside
+        containing = []
+        for name, b in artist_bounds.items():
+            if b["min_x"] < x < b["max_x"] and b["min_y"] < y < b["max_y"]:
+                area = (b["max_x"] - b["min_x"]) * (b["max_y"] - b["min_y"])
+                containing.append((area, name))
+
+        if not containing and not completion_match:
+            continue  # Outside all regions — truly unassigned, skip
+
+        # Pick the most specific (smallest area) bounding box if multiple match
+        artist_name = "UNASSIGNED"
+        if containing:
+            containing.sort(key=lambda t: t[0])
+            artist_name = containing[0][1]
+        elif completion_match:
+            # Completion tile that isn't inside a known bounding box
+            # (edge case — treat as unassigned in-progress)
+            artist_name = "IN_PROGRESS"
+
+        completion_pct = completion_match["pct"] if completion_match else 0
+
+        tiles.append({
+            "tile": cell["tile"],
+            "x": x, "y": y,
+            "artist": artist_name,
+            "background_hex": bg_hex or "#FFFFFF",
+            "completion_pct": completion_pct,
+            "completion_label": completion_match["label"] if completion_match else "Not Started",
+            "is_done": completion_pct == 100,
+        })
+
+    df = pd.DataFrame(tiles) if tiles else pd.DataFrame(
+        columns=["tile","x","y","artist","background_hex","completion_pct","completion_label","is_done"]
+    )
 
     # ── Build Summary ────────────────────────────────────────────────────────────
     assigned = df[~df["artist"].isin(["UNASSIGNED", "IN_PROGRESS", "Empty"])]
