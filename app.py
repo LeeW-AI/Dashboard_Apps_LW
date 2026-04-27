@@ -60,11 +60,11 @@ st.markdown("""
 
 # ── Config (replaces config.py — edit these values) ─────────────────────────────
 
-SHEET_ID        = st.secrets.get("SHEET_ID", "YOUR_SHEET_ID_HERE")
-TILEMAP_TAB     = st.secrets.get("TILEMAP_TAB", "Sheet1")
+SHEET_ID        = st.secrets.get("SHEET_ID", "1DHW5uoNu02xpdsp6PB8OXlSNtD3Ig9PKXThZ5BGDg6g")
+TILEMAP_TAB     = st.secrets.get("TILEMAP_TAB", "Airedale_Wharfdale TileMap")
 LEGEND_TAB      = st.secrets.get("LEGEND_TAB", "Legend")
-TILEMAP_RANGE   = st.secrets.get("TILEMAP_RANGE", "A1:BZ300")
-LEGEND_RANGE    = st.secrets.get("LEGEND_RANGE", "A1:E20")
+TILEMAP_RANGE   = st.secrets.get("TILEMAP_RANGE", "I16:AW48")
+LEGEND_RANGE    = st.secrets.get("LEGEND_RANGE", "A1:E12")
 COLOUR_TOLERANCE = 15
 
 
