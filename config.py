@@ -4,7 +4,7 @@
 SHEET_ID = "1DHW5uoNu02xpdsp6PB8OXlSNtD3Ig9PKXThZ5BGDg6g"
 
 # Tab names
-TILEMAP_TAB = "Sheet1"   # The tab with your grid
+TILEMAP_TAB = "Airedale_Wharfdale TileMap"   # The tab with your grid
 LEGEND_TAB  = "Legend"  # The tab with artist + completion colour mappings
 
 # A1 ranges — expand these to cover your full grid/legend
