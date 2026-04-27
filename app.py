@@ -1,6 +1,6 @@
-####### ---  Tilemap Stats Dashboard Web App v47  ------########
+####### ---  Tilemap Stats Dashboard Web App v48  ------########
 
-## Script Working Status - 
+## Script Working Status - This is a great new working baseline with some nice updates from v47
 
 
 ## v37 updated to now uses either a Streamlit Community Cloud Secrets file, or a local file in .streamlit\secrets.toml
@@ -13,12 +13,14 @@
 ## v44 Adding Milestone tracking to v42 for complete Dashboard - nearly working.
 ## v45 Fixing the Milestone tracking to add the missing colours.
 ## v46 Some minor UI cleanup
-## v47 Some new features - add tile colours to Station Assignments list
+## v47 Some new features - add tile colours to Station Assignments list - this works now
+## v48 Just some cleanup additions of Text headings and some comments, also added the variable for the proper sheet to track
 
 
 ## NOTES FOR BUGS:
 ## Tile numbers must be the correct format -94/-263 or they will not be counted/coloured in the Dashboard
-## Hast to be Sheet1 on the Google Sheet, has to be shared with the email in the credentials file as a Viewer.
+## If the visual tilemap isn't displaying correctly check for tile numbers missing / or should be positive, check the hover stats info
+## Has to be Sheet1 on the Google Sheet, has to be shared with the email in the credentials file as a Viewer.
 
 
 ## -------------------------------------------------------------------------------------------- ##
@@ -27,7 +29,11 @@
 ## Add Station Name to hover stats on Visual Tilemap if tile has a Station
 ## Update Man Days Count to be a better reflection of what's left (Should we add the other tasks done after scenery)
 ## Improve the look of the UI
-## 
+## Track how many tiles per Artist (hard code artist list) how many in progress, how many left on scenery, days used, days to go. (+ additional tasks)
+## Tile complexity estimates (allocate certain tiles more/less days vs Artist exp.
+## Manual Entry for Project End date (uses this to calculate how many days are left)
+## Add Artist holidays in to calculations.
+## Add a colour for tile blocked from finishing more than 75% but not able to move to 100%
 
 
 
@@ -45,9 +51,9 @@
 ## This script requires the following installed: 
 ## py -m pip install streamlit pandas gspread gspread-formatting google-auth matplotlib plotly
 
-# --- Run this using the command streamlit run app_v47.py
+# --- Run this using the command streamlit run app_v48.py
 
-####### ---  Tilemap Stats Dashboard Web App v47  ------########
+####### ---  Tilemap Stats Dashboard Web App v48  ------########
 
 import streamlit as st
 import pandas as pd
@@ -104,7 +110,8 @@ def get_creds():
 
 creds = get_creds()
 client = gspread.authorize(creds)
-SHEET_ID = '1DHW5uoNu02xpdsp6PB8OXlSNtD3Ig9PKXThZ5BGDg6g'
+##SHEET_ID = '1DHW5uoNu02xpdsp6PB8OXlSNtD3Ig9PKXThZ5BGDg6g' ## Test Sheet
+SHEET_ID = '12FoC4Vz0Yx0WxscjypMM8J3sN7WKaL23LgV6tdAS-Hg' ## Proper Sheet
 sheet = client.open_by_key(SHEET_ID).sheet1
 
 
@@ -115,7 +122,8 @@ def get_dashboard_data():
     # Re-establish connection inside the function to avoid NameError/Scope issues
     creds = get_creds()
     client = gspread.authorize(creds)
-    SHEET_ID = '1DHW5uoNu02xpdsp6PB8OXlSNtD3Ig9PKXThZ5BGDg6g'
+    ##SHEET_ID = '1DHW5uoNu02xpdsp6PB8OXlSNtD3Ig9PKXThZ5BGDg6g' ## Test Sheet
+    SHEET_ID = '12FoC4Vz0Yx0WxscjypMM8J3sN7WKaL23LgV6tdAS-Hg' ## Proper Sheet
     
     opened_spreadsheet = client.open_by_key(SHEET_ID)
     main_sheet = opened_spreadsheet.sheet1
@@ -137,8 +145,8 @@ def get_dashboard_data():
     response = session.get(url).json()
     return raw_main, raw_milestone, response
 
-st.set_page_config(page_title="TileMap Stats Dashboard v47", layout="wide")
-st.title("📊 TileMap Stats Dashboard v47")
+st.set_page_config(page_title="TileMap Stats Dashboard v48", layout="wide")
+st.title("📊 TileMap Stats Dashboard v48")
 
 raw_main, raw_milestone, formatting_response = get_dashboard_data()
 row_data = formatting_response.get('sheets', [{}])[0].get('data', [{}])[0].get('rowData', [])
@@ -223,12 +231,12 @@ man_days = round(remaining_work * MAN_DAY_MULTIPLIER)
 st.divider()
 
 m_cols = st.columns(7)
-m_cols[0].metric("Total", totalTiles)
-m_cols[1].metric("Started", tiles_25+tiles_50+tiles_75)
-m_cols[2].metric("25%", tiles_25)
-m_cols[3].metric("50%", tiles_50)
-m_cols[4].metric("75%", tiles_75)
-m_cols[5].metric("100%", tiles_100)
+m_cols[0].metric("Track Tiles", totalTiles)
+m_cols[1].metric("Tiles in Progress", tiles_25+tiles_50+tiles_75)
+m_cols[2].metric("# Progress at 25%", tiles_25)
+m_cols[3].metric("# Progress at 50%", tiles_50)
+m_cols[4].metric("# Progress at 75%", tiles_75)
+m_cols[5].metric("Tiles Complete", tiles_100)
 m_cols[6].metric("Man Days Left", f"{man_days}d")
 
 st.divider()
