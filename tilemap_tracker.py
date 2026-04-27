@@ -24,13 +24,15 @@ import config
 SCOPES = ["https://www.googleapis.com/auth/spreadsheets.readonly"]
 
 
+import streamlit as st
+from google.oauth2 import service_account
+
 def get_sheets_service():
-    """Authenticate with the Google Sheets API using a service account."""
-    creds = service_account.Credentials.from_service_account_file(
-        "credentials.json", scopes=SCOPES
+    creds = service_account.Credentials.from_service_account_info(
+        st.secrets["gcp_service_account"],
+        scopes=["https://www.googleapis.com/auth/spreadsheets.readonly"]
     )
     return build("sheets", "v4", credentials=creds).spreadsheets()
-
 
 # ── Colour Utilities ────────────────────────────────────────────────────────────
 
