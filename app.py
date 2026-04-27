@@ -1,401 +1,299 @@
-####### ---  Tilemap Stats Dashboard Web App v48  ------########
+"""
+Tilemap Dashboard — dashboard.py, renamed to app.py to run with my current streamlit setup
+─────────────────────────────────
+Run with:  streamlit run dashboard.py
 
-## Script Working Status - This is a great new working baseline with some nice updates from v47
+This is the claude version of the Dashboard Stats app.
 
+Reads the CSVs produced by tilemap_tracker.py and renders:
+  • A live-updating per-artist progress bar panel
+  • An interactive plotly tilemap recreation
+  • A raw data explorer
+"""
 
-## v37 updated to now uses either a Streamlit Community Cloud Secrets file, or a local file in .streamlit\secrets.toml
-## v38 added in some additional tweaks from v33 for the bar graph legend and number at the top of the bar
-## v39 Adding Filter by Artist and additional Stats in the Visual tilemap - Doesn't really work well.
-## v40 Rolled back to v38 then added Additional stats to the Visual tilemap hover over, 
-## v41 Rolled back to v38 then added the Assignment key to the visual tilemap at the bottom so you can see which artist is which colour - didn't work well
-## v42 Rolled back to v38 then added 2 Legends to the visual tilemap specifying the colours and text to use as variables
-## v43 Used v42 as the baseline, adding Milestone tracking functionaliy to the Stats, this worked, but lost other stats and Legends, re-add in v44
-## v44 Adding Milestone tracking to v42 for complete Dashboard - nearly working.
-## v45 Fixing the Milestone tracking to add the missing colours.
-## v46 Some minor UI cleanup
-## v47 Some new features - add tile colours to Station Assignments list - this works now
-## v48 Just some cleanup additions of Text headings and some comments, also added the variable for the proper sheet to track
-
-
-## NOTES FOR BUGS:
-## Tile numbers must be the correct format -94/-263 or they will not be counted/coloured in the Dashboard
-## If the visual tilemap isn't displaying correctly check for tile numbers missing / or should be positive, check the hover stats info
-## Has to be Sheet1 on the Google Sheet, has to be shared with the email in the credentials file as a Viewer.
-
-
-## -------------------------------------------------------------------------------------------- ##
-
-## New Features to add:
-## Add Station Name to hover stats on Visual Tilemap if tile has a Station
-## Update Man Days Count to be a better reflection of what's left (Should we add the other tasks done after scenery)
-## Improve the look of the UI
-## Track how many tiles per Artist (hard code artist list) how many in progress, how many left on scenery, days used, days to go. (+ additional tasks)
-## Tile complexity estimates (allocate certain tiles more/less days vs Artist exp.
-## Manual Entry for Project End date (uses this to calculate how many days are left)
-## Add Artist holidays in to calculations.
-## Add a colour for tile blocked from finishing more than 75% but not able to move to 100%
-
-
-
-## For this to work I have shared TileMap_DashboardTest_LW with the email account in the credentials.json as a viewer
-## This allows the script to access the google sheet.
-## This script is using my own personal gmail account for API access, might need to share with that account too.
-
-## You can refresh the Web App once loaded to refresh the stats when you update the sheet.
-
-## When running the script in windows, if you CTRL+C a few times in the command prompt it will exit the script running
-## you can then hit the up arrow to get the run command from history to run it again quickly
-## This saves opening a new command window to test it again.
-
-
-## This script requires the following installed: 
-## py -m pip install streamlit pandas gspread gspread-formatting google-auth matplotlib plotly
-
-# --- Run this using the command streamlit run app_v48.py
-
-####### ---  Tilemap Stats Dashboard Web App v48  ------########
-
-import streamlit as st
 import pandas as pd
-import gspread
-from google.oauth2.service_account import Credentials
-from google.auth.transport.requests import AuthorizedSession
-import matplotlib.pyplot as plt
-import matplotlib.colors as mcolors
-import re
-import numpy as np
 import plotly.graph_objects as go
-import os
+import streamlit as st
+from pathlib import Path
 
-# --- ⚙️ CONFIGURABLE SETTINGS ---
-totalTiles = 107
-MAN_DAY_MULTIPLIER = 1.85
+# ── Page Config ─────────────────────────────────────────────────────────────────
 
-# 🎨 Completion Key Colors
-COMPLETION_KEY = {
-    "25%": "#ff0000",
-    "50%": "#ff9900",
-    "75%": "#ffff00",
-    "100%": "#00ff00"
-}
+st.set_page_config(
+    page_title="Tilemap Tracker",
+    page_icon="🗺️",
+    layout="wide",
+    initial_sidebar_state="collapsed"
+)
 
-# 👤 Assignment Key Colors
-ASSIGNMENT_KEY = {
-    "Kaya": "#9900ff",
-    "Greg": "#00ffff",
-    "Natalia": "#ff00ff",
-    "Elliott": "#4285f4",
-    "Ryan": "#674ea7",
-    "Iain": "#a64d79",
-    "JamesH": "#ea9999",
-    "TomH": "#ffe599",
-    "Unassigned": "#c6d9f0",
-    "Not Included": "#b7b7b7"
-}
+# ── Custom CSS ───────────────────────────────────────────────────────────────────
 
-# Sync legacy variables for bar graph logic
-COLOR_25 = COMPLETION_KEY["25%"]
-COLOR_50 = COMPLETION_KEY["50%"]
-COLOR_75 = COMPLETION_KEY["75%"]
-COLOR_100 = COMPLETION_KEY["100%"]
-COLOR_GRID = '#f8f9fb'
+st.markdown("""
+<style>
+    @import url('https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Inter:wght@300;400;600&display=swap');
 
-# --- 1. Authenticate ---
-@st.cache_resource
-def get_creds():
-    scopes = ["https://www.googleapis.com/auth/spreadsheets.readonly", "https://www.googleapis.com/auth/drive.readonly"]
-    if "gcp_service_account" in st.secrets:
-        return Credentials.from_service_account_info(dict(st.secrets["gcp_service_account"]), scopes=scopes)
-    return Credentials.from_service_account_file("credentials.json", scopes=scopes)
+    html, body, [class*="css"] { font-family: 'Inter', sans-serif; }
+    h1, h2, h3 { font-family: 'Space Mono', monospace; letter-spacing: -0.03em; }
 
-creds = get_creds()
-client = gspread.authorize(creds)
-##SHEET_ID = '1DHW5uoNu02xpdsp6PB8OXlSNtD3Ig9PKXThZ5BGDg6g' ## Test Sheet
-SHEET_ID = '12FoC4Vz0Yx0WxscjypMM8J3sN7WKaL23LgV6tdAS-Hg' ## Proper Sheet
-sheet = client.open_by_key(SHEET_ID).sheet1
+    .stApp { background: #0f1117; color: #e8eaf0; }
 
+    .metric-card {
+        background: #1a1d27;
+        border: 1px solid #2a2d3a;
+        border-radius: 12px;
+        padding: 1.25rem 1.5rem;
+        margin-bottom: 0.75rem;
+    }
+    .metric-card h4 {
+        margin: 0 0 0.5rem 0;
+        font-size: 0.85rem;
+        color: #8b8fa8;
+        font-family: 'Space Mono', monospace;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+    }
+    .metric-card .value {
+        font-size: 2.2rem;
+        font-weight: 600;
+        color: #e8eaf0;
+        line-height: 1;
+    }
+    .metric-card .sub {
+        font-size: 0.78rem;
+        color: #6b6f85;
+        margin-top: 0.3rem;
+    }
 
+    .progress-row {
+        background: #1a1d27;
+        border: 1px solid #2a2d3a;
+        border-radius: 10px;
+        padding: 0.9rem 1.2rem;
+        margin-bottom: 0.5rem;
+    }
+    .progress-row .artist-name {
+        font-weight: 600;
+        font-size: 0.95rem;
+        margin-bottom: 0.4rem;
+    }
+    .progress-bar-bg {
+        background: #2a2d3a;
+        border-radius: 4px;
+        height: 8px;
+        width: 100%;
+    }
+    .progress-bar-fill {
+        border-radius: 4px;
+        height: 8px;
+        transition: width 0.5s ease;
+    }
 
-# --- 2. Fetch Data (Fixed Scope Error) ---
-@st.cache_data(ttl=60)
-def get_dashboard_data():
-    # Re-establish connection inside the function to avoid NameError/Scope issues
-    creds = get_creds()
-    client = gspread.authorize(creds)
-    ##SHEET_ID = '1DHW5uoNu02xpdsp6PB8OXlSNtD3Ig9PKXThZ5BGDg6g' ## Test Sheet
-    SHEET_ID = '12FoC4Vz0Yx0WxscjypMM8J3sN7WKaL23LgV6tdAS-Hg' ## Proper Sheet
-    
-    opened_spreadsheet = client.open_by_key(SHEET_ID)
-    main_sheet = opened_spreadsheet.sheet1
-    raw_main = main_sheet.get_all_values()
-    
-    # Milestone Fetch
-    raw_milestone = []
-    try:
-        all_sheets = opened_spreadsheet.worksheets()
-        target = next((s for s in all_sheets if "Milestone" in s.title), None)
-        if target:
-            raw_milestone = target.get_all_values()
-    except Exception as e:
-        print(f"Milestone fetch error: {e}")
-    
-    # Formatting Fetch
-    session = AuthorizedSession(creds)
-    url = f"https://sheets.googleapis.com/v4/spreadsheets/{SHEET_ID}?ranges={sheet.title}!A1:AZ100&fields=sheets(data(rowData(values(userEnteredFormat(backgroundColor),effectiveFormat(backgroundColor),effectiveValue))))"
-    response = session.get(url).json()
-    return raw_main, raw_milestone, response
-
-st.set_page_config(page_title="TileMap Stats Dashboard v48", layout="wide")
-st.title("📊 TileMap Stats Dashboard v48")
-
-raw_main, raw_milestone, formatting_response = get_dashboard_data()
-row_data = formatting_response.get('sheets', [{}])[0].get('data', [{}])[0].get('rowData', [])
-
-# --- 3. Step A: Calibration (v6 Logic) ---
-legend_colors = {"25": None, "50": None, "75": None, "100": None}
-target_labels = ["0.25", ".25", "25%", "0.5", "0.50", ".5", "50%", "0.75", ".75", "75%", "1", "1.0", "100%"]
-
-for r_idx in range(0, 15):
-    if r_idx < len(raw_main):
-        for col_idx, text_val in enumerate(raw_main[r_idx]):
-            clean_val = str(text_val).strip()
-            if clean_val in target_labels:
-                label_key = "25" if "25" in clean_val else "50" if "50" in clean_val or clean_val in ["0.5", ".5"] else "75" if "75" in clean_val else "100"
-                for offset in [1, 2]:
-                    if col_idx - offset >= 0:
-                        cell = row_data[r_idx]['values'][col_idx - offset] if col_idx - offset < len(row_data[r_idx]['values']) else {}
-                        bg = cell.get('userEnteredFormat', {}).get('backgroundColor')
-                        if bg and not (bg.get('red', 0) == 1 and bg.get('green', 0) == 1 and bg.get('blue', 0) == 1):
-                            legend_colors[label_key] = (bg.get('red', 0), bg.get('green', 0), bg.get('blue', 0))
-                            break
-
-# --- 4. Step B: Processing ---
-tiles_25 = tiles_50 = tiles_75 = tiles_100 = 0
-map_points = []
-tile_color_lookup = {} 
-
-def colors_match(rgb1, rgb2, tol=0.1): 
-    if rgb1 is None or rgb2 is None: return False
-    return all(abs(a - b) < tol for a, b in zip(rgb1, rgb2))
-    
-def clean_coord(val):
-    cleaned = re.sub(r'[^0-9/-]', '', str(val))
-    parts = cleaned.split("/")
-    # Change: return the string "X/Y" instead of (X, Y)
-    return cleaned if len(parts) == 2 else None
+    .section-header {
+        font-family: 'Space Mono', monospace;
+        font-size: 0.7rem;
+        text-transform: uppercase;
+        letter-spacing: 0.12em;
+        color: #555870;
+        border-bottom: 1px solid #2a2d3a;
+        padding-bottom: 0.5rem;
+        margin: 1.5rem 0 1rem 0;
+    }
+</style>
+""", unsafe_allow_html=True)
 
 
-for r_idx, row in enumerate(row_data):
-    if r_idx < 14 or r_idx >= len(raw_main): continue 
-    if 'values' in row:
-        current_text_row = raw_main[r_idx]
-        for c_idx, cell in enumerate(row['values']):
-            # Counts for Stats
-            user_bg = cell.get('userEnteredFormat', {}).get('backgroundColor')
-            if user_bg:
-                u_rgb = (user_bg.get('red', 0), user_bg.get('green', 0), user_bg.get('blue', 0))
-                if sum(u_rgb) < 2.9 and sum(u_rgb) > 0:
-                    if colors_match(u_rgb, legend_colors["25"]): tiles_25 += 1
-                    elif colors_match(u_rgb, legend_colors["50"]): tiles_50 += 1
-                    elif colors_match(u_rgb, legend_colors["75"]): tiles_75 += 1
-                    elif colors_match(u_rgb, legend_colors["100"]): tiles_100 += 1
-            
-            
-            
-            # TileMap Points
-            if c_idx < len(current_text_row):
-                tile_name = str(current_text_row[c_idx]).strip()
-                coords = clean_coord(tile_name)
-                if coords:
-                    eff_bg = cell.get('effectiveFormat', {}).get('backgroundColor', {'red': 1, 'green': 1, 'blue': 1})
-                    hex_color = mcolors.to_hex((eff_bg.get('red', 0), eff_bg.get('green', 0), eff_bg.get('blue', 0)))
-                    
-                    # Store color using the string coordinate "X/Y"
-                    tile_color_lookup[coords] = hex_color
-                    
-                    # Split the string back into numbers for the map coordinates
-                    x_val, y_val = coords.split("/")
-                    
-                    map_points.append({
-                        'x': int(x_val), 
-                        'y': int(y_val), 
-                        'color': hex_color, 
-                        'name': tile_name
-                    })
-     
+# ── Data Loading ─────────────────────────────────────────────────────────────────
 
-# --- 5. UI Build ---
-remaining_work = (totalTiles - tiles_100) - ((tiles_25 * 0.25) + (tiles_50 * 0.5) + (tiles_75 * 0.75))
-man_days = round(remaining_work * MAN_DAY_MULTIPLIER)
+@st.cache_data(ttl=60)  # Auto-refresh every 60 seconds
+def load_data():
+    tile_path    = Path("output/progress_report.csv")
+    summary_path = Path("output/artist_summary.csv")
 
-st.divider()
+    if not tile_path.exists():
+        return None, None
 
-m_cols = st.columns(7)
-m_cols[0].metric("Track Tiles", totalTiles)
-m_cols[1].metric("Tiles in Progress", tiles_25+tiles_50+tiles_75)
-m_cols[2].metric("# Progress at 25%", tiles_25)
-m_cols[3].metric("# Progress at 50%", tiles_50)
-m_cols[4].metric("# Progress at 75%", tiles_75)
-m_cols[5].metric("Tiles Complete", tiles_100)
-m_cols[6].metric("Man Days Left", f"{man_days}d")
-
-st.divider()
+    tiles   = pd.read_csv(tile_path)
+    summary = pd.read_csv(summary_path) if summary_path.exists() else None
+    return tiles, summary
 
 
-# --- 5. Milestone Table (Updated for Column Headings) ---
-
-st.subheader("🚩 Milestone Visual Status")
-if raw_milestone:
-    for row in raw_milestone[1:]: 
-        # Indices updated for: [0] No., [1] Count, [2] Tiles
-        if len(row) >= 3:
-            m_no = str(row[0]).strip()
-            m_expected_count = str(row[1]).strip()
-            m_tiles_text = str(row[2]).strip()
-            
-            if not m_no or not m_tiles_text: continue
-            
-            found_coords = re.findall(r'-?\d+/-?\d+', m_tiles_text)
-            actual_count = len(found_coords)
-            
-            if found_coords:
-                # Mismatch logic
-                count_display = f"({actual_count} tiles)"
-                if m_expected_count.isdigit() and int(m_expected_count) != actual_count:
-                    count_display = f"⚠️ Mismatch: Found {actual_count} / Expected {m_expected_count}"
-                
-                html_chips = f"**M{m_no}** {count_display} &nbsp; "
-                
-                for c in found_coords:
-                    bg = tile_color_lookup.get(c, "#ffffff") 
-                    is_dark = mcolors.rgb_to_hsv(mcolors.to_rgb(bg))[2] < 0.5
-                    txt = "white" if is_dark else "black"
-                    html_chips += f'<span style="background-color:{bg}; color:{txt}; padding:2px 6px; border-radius:4px; border:1px solid #ddd; margin-right:4px; font-family:monospace; font-size:12px;">{c}</span>'
-                
-                st.markdown(html_chips, unsafe_allow_html=True)
-else:
-    st.warning("Milestone data not found in the spreadsheet.")
-
-st.divider()
+tiles, summary = load_data()
 
 
-# --- Progress and Station Assignment Tables ------------------ ######
+# ── Header ───────────────────────────────────────────────────────────────────────
 
-col_l, col_r = st.columns([2, 1])
+st.markdown("# 🗺️ Tilemap Tracker")
+st.markdown('<p style="color:#6b6f85;margin-top:-0.5rem;font-size:0.9rem;">UE4 Level Tile Assignment & Progress Dashboard</p>', unsafe_allow_html=True)
 
-with col_l:
-    st.subheader("Progress Distribution")
-    labels = ['25% Done', '50% Done', '75% Done', '100% Done']
-    counts = [tiles_25, tiles_50, tiles_75, tiles_100]
-    bar_colors = [COLOR_25, COLOR_50, COLOR_75, COLOR_100]
-    
-    fig, ax = plt.subplots(figsize=(10, 7))
-    ax.bar(labels, counts, color=bar_colors, edgecolor='grey')
-    ax.bar_label(ax.containers[0], padding=3)
-    st.pyplot(fig)
-    
-    st.caption("Graph Color Legend (Editable in Script)")
-    leg_1, leg_2, leg_3, leg_4 = st.columns(4)
-    leg_1.markdown(f"🔴 **25%:** `{COLOR_25}`"); leg_2.markdown(f"🟠 **50%:** `{COLOR_50}`")
-    leg_3.markdown(f"🟡 **75%:** `{COLOR_75}`"); leg_4.markdown(f"🟢 **100%:** `{COLOR_100}`")
+if tiles is None:
+    st.warning("No data found. Run `python tilemap_tracker.py` first to generate output/progress_report.csv")
+    st.stop()
 
-with col_r:
-    st.subheader("Station Assignments")
-    
-    # 1. Create the list of assignments
-    stations_data = [
-        {'Station': str(raw_main[i][2]).strip(), 
-         'Tile': str(raw_main[i][3]).strip(), 
-         'Artist': str(raw_main[i][4]).strip()} 
-        for i in range(10, min(45, len(raw_main))) 
-        if len(raw_main[i]) > 4 and str(raw_main[i][2]).strip() not in ['nan', 'None', 'Tile', ""]
-    ]
-    
-    if stations_data:
-        df_stations = pd.DataFrame(stations_data)
 
-        # 2. Define a function to map the tile coordinate to its background color
-        def color_tiles(val):
-            # Get color from our lookup, default to white if not found
-            bg_color = tile_color_lookup.get(val, "#ffffff")
-            
-            # Ensure bg_color is a string to prevent errors
-            if not isinstance(bg_color, str):
-                bg_color = "#ffffff"
-                
-            # Calculate text color (white for dark backgrounds, black for light)
-            rgb = mcolors.to_rgb(bg_color)
-            brightness = mcolors.rgb_to_hsv(rgb)[2]
-            text_color = "white" if brightness < 0.5 else "black"
-            
-            return f'background-color: {bg_color}; color: {text_color}'
+# ── Top Metrics ──────────────────────────────────────────────────────────────────
 
-        # 3. THE FIX: Changed .applymap() to .map() for Pandas 3.0+ compatibility
-        styled_df = df_stations.style.map(color_tiles, subset=['Tile'])
+total_tiles  = len(tiles)
+assigned     = tiles[~tiles["artist"].isin(["UNASSIGNED", "IN_PROGRESS", "Empty"])]
+done_tiles   = int(tiles["is_done"].sum())
+overall_pct  = round(done_tiles / total_tiles * 100, 1) if total_tiles else 0
 
-        # 4. Display the styled dataframe
-        st.dataframe(styled_df, hide_index=True, use_container_width=True, height=600)
+col1, col2, col3, col4 = st.columns(4)
+
+with col1:
+    st.markdown(f"""
+    <div class="metric-card">
+        <h4>Total Tiles</h4>
+        <div class="value">{total_tiles:,}</div>
+        <div class="sub">in tracked region</div>
+    </div>""", unsafe_allow_html=True)
+
+with col2:
+    st.markdown(f"""
+    <div class="metric-card">
+        <h4>Assigned</h4>
+        <div class="value">{len(assigned):,}</div>
+        <div class="sub">across {summary['artist'].nunique() if summary is not None else '—'} artists</div>
+    </div>""", unsafe_allow_html=True)
+
+with col3:
+    st.markdown(f"""
+    <div class="metric-card">
+        <h4>Completed</h4>
+        <div class="value">{done_tiles:,}</div>
+        <div class="sub">tiles marked 100%</div>
+    </div>""", unsafe_allow_html=True)
+
+with col4:
+    colour = "#00C896" if overall_pct >= 75 else "#FFB800" if overall_pct >= 40 else "#FF4B4B"
+    st.markdown(f"""
+    <div class="metric-card">
+        <h4>Overall Progress</h4>
+        <div class="value" style="color:{colour}">{overall_pct}%</div>
+        <div class="sub">of assigned tiles done</div>
+    </div>""", unsafe_allow_html=True)
+
+
+# ── Main Layout ──────────────────────────────────────────────────────────────────
+
+left_col, right_col = st.columns([1, 2])
+
+# ── LEFT: Artist Progress Bars ────────────────────────────────────────────────
+
+with left_col:
+    st.markdown('<div class="section-header">Artist Progress</div>', unsafe_allow_html=True)
+
+    if summary is not None:
+        for _, row in summary.sort_values("progress_pct", ascending=False).iterrows():
+            pct  = row["progress_pct"]
+            done = int(row["completed"])
+            total = int(row["total_tiles"])
+
+            # Colour the bar by progress
+            if pct >= 100:
+                bar_colour = "#00C896"
+            elif pct >= 75:
+                bar_colour = "#4CAF50"
+            elif pct >= 50:
+                bar_colour = "#FFB800"
+            elif pct >= 25:
+                bar_colour = "#FF8C00"
+            else:
+                bar_colour = "#FF4B4B"
+
+            st.markdown(f"""
+            <div class="progress-row">
+                <div class="artist-name">{row['artist']}</div>
+                <div style="display:flex;justify-content:space-between;font-size:0.78rem;color:#8b8fa8;margin-bottom:0.35rem;">
+                    <span>{done}/{total} tiles</span>
+                    <span style="color:{bar_colour};font-weight:600">{pct}%</span>
+                </div>
+                <div class="progress-bar-bg">
+                    <div class="progress-bar-fill" style="width:{pct}%;background:{bar_colour}"></div>
+                </div>
+            </div>""", unsafe_allow_html=True)
     else:
-        st.write("No station assignments found.")        
-          
-st.divider()
-   
+        st.info("Run the tracker to generate artist summaries.")
 
-# --- Visual Tilemap Display Code ------------------------------ ###
 
-st.subheader("📍 Interactive Visual TileMap")
-if map_points:
-    df_map = pd.DataFrame(map_points)
-    fig_map = go.Figure()
+# ── RIGHT: Interactive Tilemap ────────────────────────────────────────────────
 
-    # 1. ADD LEGEND SECTIONS (Grouped Dummy Traces)
-    # Completion Legend
-    for label, color in COMPLETION_KEY.items():
-        fig_map.add_trace(go.Scatter(
-            x=[None], y=[None], mode='markers',
-            marker=dict(size=12, symbol='square', color=color),
-            legendgroup='Completion',
-            legendgrouptitle_text='<b>Completion Key</b>',
-            name=label, showlegend=True
-        ))
+with right_col:
+    st.markdown('<div class="section-header">Tilemap View</div>', unsafe_allow_html=True)
 
-    # Assignment Legend
-    for label, color in ASSIGNMENT_KEY.items():
-        fig_map.add_trace(go.Scatter(
-            x=[None], y=[None], mode='markers',
-            marker=dict(size=12, symbol='square', color=color),
-            legendgroup='Assignment',
-            legendgrouptitle_text='<b>Assignment Key</b>',
-            name=label, showlegend=True
-        ))
+    # Build colour map for the scatter plot
+    # Use background_hex directly — it reflects both artist and completion colours
+    fig = go.Figure()
 
-    # 2. ADD ACTUAL TILE DATA
-    fig_map.add_trace(go.Scatter(
-        x=df_map['x'], y=df_map['y'], mode='markers',
-        marker=dict(size=18, symbol='square', color=df_map['color'], line=dict(width=1, color='DarkSlateGrey')),
-        text=df_map['name'], hoverinfo='text',
-        showlegend=False  # Hide individual tile markers from the legend
-    ))
+    # Group by colour for efficient rendering
+    colour_groups = tiles.groupby("background_hex")
 
-    fig_map.update_layout(
-        plot_bgcolor=COLOR_GRID, 
-        width=1000, 
-        height=800,
-        xaxis=dict(scaleanchor="y", scaleratio=1, side='top'),
-        yaxis=dict(autorange="reversed"),
-        legend=dict(
-            bgcolor="rgba(255, 255, 255, 0.9)",
-            bordercolor="DarkSlateGrey",
-            borderwidth=1,
-            tracegroupgap=80,     # Increases space between Completion and Assignment groups
-            itemsizing='constant', # Ensures legend markers stay a consistent size
-            itemwidth=40,          # Increases the width of the legend items
-            font=dict(
-                family="Arial",
-                size=18,           # ⬅️ ADJUST THIS for larger text
-                color="black"
-            )
+    for colour, group in colour_groups:
+        if colour == "#FFFFFF":
+            continue  # Skip empty cells
+
+        # Build hover text
+        hover = group.apply(
+            lambda r: f"<b>{r['tile']}</b><br>Artist: {r['artist']}<br>Completion: {r['completion_label']}",
+            axis=1
         )
+
+        fig.add_trace(go.Scatter(
+            x=group["x"],
+            y=group["y"],
+            mode="markers",
+            marker=dict(
+                color=colour,
+                size=10,
+                symbol="square",
+                line=dict(color="#0f1117", width=0.5)
+            ),
+            hovertemplate="%{text}<extra></extra>",
+            text=hover,
+            showlegend=False
+        ))
+
+    fig.update_layout(
+        paper_bgcolor="#0f1117",
+        plot_bgcolor="#1a1d27",
+        font=dict(color="#e8eaf0", family="Space Mono"),
+        xaxis=dict(
+            showgrid=True, gridcolor="#2a2d3a",
+            zeroline=False, title="X Coordinate"
+        ),
+        yaxis=dict(
+            showgrid=True, gridcolor="#2a2d3a",
+            zeroline=False, title="Y Coordinate",
+            autorange=True
+        ),
+        margin=dict(l=20, r=20, t=20, b=20),
+        height=480,
+        hovermode="closest"
     )
-    
-    st.plotly_chart(fig_map, use_container_width=True)
+
+    st.plotly_chart(fig, use_container_width=True)
+
+
+# ── Raw Data Explorer ─────────────────────────────────────────────────────────
+
+st.markdown('<div class="section-header">Data Explorer</div>', unsafe_allow_html=True)
+
+filter_artist = st.multiselect(
+    "Filter by Artist",
+    options=sorted(tiles["artist"].unique()),
+    default=[]
+)
+
+display_df = tiles if not filter_artist else tiles[tiles["artist"].isin(filter_artist)]
+
+st.dataframe(
+    display_df[["tile", "artist", "completion_pct", "completion_label", "background_hex"]],
+    use_container_width=True,
+    height=280
+)
+
+# ── Footer ────────────────────────────────────────────────────────────────────
+
+st.markdown(
+    f'<p style="color:#333650;font-size:0.75rem;text-align:center;margin-top:2rem;">'
+    f'Last data refresh: run tilemap_tracker.py to update · {total_tiles} cells parsed</p>',
+    unsafe_allow_html=True
+)
