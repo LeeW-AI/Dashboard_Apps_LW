@@ -110,8 +110,8 @@ def get_creds():
 
 creds = get_creds()
 client = gspread.authorize(creds)
-##SHEET_ID = '1DHW5uoNu02xpdsp6PB8OXlSNtD3Ig9PKXThZ5BGDg6g' ## Test Sheet
-SHEET_ID = '12FoC4Vz0Yx0WxscjypMM8J3sN7WKaL23LgV6tdAS-Hg' ## Proper Sheet
+SHEET_ID = '1DHW5uoNu02xpdsp6PB8OXlSNtD3Ig9PKXThZ5BGDg6g' ## Test Sheet
+##SHEET_ID = '12FoC4Vz0Yx0WxscjypMM8J3sN7WKaL23LgV6tdAS-Hg' ## Proper Sheet
 sheet = client.open_by_key(SHEET_ID).sheet1
 
 
@@ -122,8 +122,8 @@ def get_dashboard_data():
     # Re-establish connection inside the function to avoid NameError/Scope issues
     creds = get_creds()
     client = gspread.authorize(creds)
-    ##SHEET_ID = '1DHW5uoNu02xpdsp6PB8OXlSNtD3Ig9PKXThZ5BGDg6g' ## Test Sheet
-    SHEET_ID = '12FoC4Vz0Yx0WxscjypMM8J3sN7WKaL23LgV6tdAS-Hg' ## Proper Sheet
+    SHEET_ID = '1DHW5uoNu02xpdsp6PB8OXlSNtD3Ig9PKXThZ5BGDg6g' ## Test Sheet
+    ##SHEET_ID = '12FoC4Vz0Yx0WxscjypMM8J3sN7WKaL23LgV6tdAS-Hg' ## Proper Sheet
     
     opened_spreadsheet = client.open_by_key(SHEET_ID)
     main_sheet = opened_spreadsheet.sheet1
