@@ -52,7 +52,7 @@ ASSIGNMENT_KEY = {
     "Elliott":      "#4285f4",
     "Ryan":         "#674ea7",
     "Iain":         "#a64d79",
-    "James H":      "#ea9999",
+    "JamesH":      "#ea9999",
     "TomH":         "#ffe599",
     "ArtistTBD":    "#cccccc",
     "Unassigned":   "#c6d9f0",
