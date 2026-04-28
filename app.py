@@ -62,7 +62,7 @@ ASSIGNMENT_KEY = {
 # 📋 Known artist names — only cells whose note matches one of these are tracked.
 KNOWN_ARTISTS = [
     "Kaya", "Greg", "Natalia", "Elliott", "Ryan",
-    "Iain", "James H", "TomH", "ArtistTBD", "Unassigned", "Not Included"
+    "Iain", "JamesH", "TomH", "ArtistTBD", "Unassigned", "Not Included"
 ]
 
 # Artists that count as "real" assignments — excluded from Tracked Tiles total
