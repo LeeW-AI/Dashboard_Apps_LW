@@ -1,14 +1,19 @@
-####### ---  Tilemap Stats Dashboard Web App v49  ------########
+####### ---  Tilemap Stats Dashboard Web App v50  ------########
 
-## v48 Baseline — clean working version
-## v49 Artist assignment now reads from cell NOTES instead of border/fill colour.
-##     Added Artist filter to the Visual Tilemap section.
-##     Only tiles with a note matching the known artist list are tracked per-artist.
+## v49 Baseline — artist assignment via cell notes
+## v50 Artist filter moved to the top of the page and now drives ALL sections:
+##     - Top Stats (tile counts, man days)
+##     - Milestone section (only milestones containing that artist's tiles shown)
+##     - Bar Graph (counts reflect filtered tiles only)
+##     - Visual Tilemap (unchanged behaviour, now driven by the shared filter)
+##
+##     Strategy: all raw tile data is collected into map_points as before.
+##     A single df_map DataFrame is built, then the artist filter is applied once
+##     at the top of the UI. Every section below reads from df_filtered.
 
 ## NOTES FOR BUGS:
-## Tile numbers must be the correct format -94/-263 or they will not be counted/coloured in the Dashboard
-## If the visual tilemap isn't displaying correctly check for tile numbers missing / or should be positive, check the hover stats info
-## Has to be Sheet1 on the Google Sheet, has to be shared with the email in the credentials file as a Viewer.
+## Tile numbers must be the correct format -94/-263 or they will not be counted/coloured
+## Has to be Sheet1 on the Google Sheet, shared with the service account email as Viewer.
 
 ## -------------------------------------------------------------------------------------------- ##
 
@@ -20,9 +25,7 @@ from google.auth.transport.requests import AuthorizedSession
 import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
 import re
-import numpy as np
 import plotly.graph_objects as go
-import os
 
 # --- ⚙️ CONFIGURABLE SETTINGS ---
 totalTiles = 107
@@ -30,41 +33,38 @@ MAN_DAY_MULTIPLIER = 1.85
 
 # 🎨 Completion Key Colors
 COMPLETION_KEY = {
-    "25%": "#ff0000",
-    "50%": "#ff9900",
-    "75%": "#ffff00",
+    "25%":  "#ff0000",
+    "50%":  "#ff9900",
+    "75%":  "#ffff00",
     "100%": "#00ff00"
 }
 
 # 👤 Assignment Key Colors
 ASSIGNMENT_KEY = {
-    "Kaya": "#9900ff",
-    "Greg": "#00ffff",
-    "Natalia": "#ff00ff",
-    "Elliott": "#4285f4",
-    "Ryan": "#674ea7",
-    "Iain": "#a64d79",
-    "James H": "#ea9999",
-    "TomH": "#ffe599",
-    "Unassigned": "#c6d9f0",
+    "Kaya":         "#9900ff",
+    "Greg":         "#00ffff",
+    "Natalia":      "#ff00ff",
+    "Elliott":      "#4285f4",
+    "Ryan":         "#674ea7",
+    "Iain":         "#a64d79",
+    "James H":      "#ea9999",
+    "TomH":         "#ffe599",
+    "Unassigned":   "#c6d9f0",
     "Not Included": "#b7b7b7"
 }
 
 # 📋 Known artist names — only cells whose note matches one of these are tracked.
-# Matching is case-insensitive and strips whitespace.
 KNOWN_ARTISTS = [
     "Kaya", "Greg", "Natalia", "Elliott", "Ryan",
     "Iain", "James H", "TomH", "Unassigned", "Not Included"
 ]
-
-# Build a lowercase lookup for fast normalisation: "james h" → "James H"
 ARTIST_LOOKUP = {a.lower(): a for a in KNOWN_ARTISTS}
 
-# Sync legacy variables for bar graph logic
-COLOR_25 = COMPLETION_KEY["25%"]
-COLOR_50 = COMPLETION_KEY["50%"]
-COLOR_75 = COMPLETION_KEY["75%"]
-COLOR_100 = COMPLETION_KEY["100%"]
+# Sync legacy colour variables
+COLOR_25   = COMPLETION_KEY["25%"]
+COLOR_50   = COMPLETION_KEY["50%"]
+COLOR_75   = COMPLETION_KEY["75%"]
+COLOR_100  = COMPLETION_KEY["100%"]
 COLOR_GRID = '#f8f9fb'
 
 
@@ -80,22 +80,22 @@ def get_creds():
     return Credentials.from_service_account_file("credentials.json", scopes=scopes)
 
 
-creds = get_creds()
-client = gspread.authorize(creds)
-SHEET_ID = '1DHW5uoNu02xpdsp6PB8OXlSNtD3Ig9PKXThZ5BGDg6g'  ## Proper Sheet
-sheet = client.open_by_key(SHEET_ID).sheet1
+creds   = get_creds()
+client  = gspread.authorize(creds)
+SHEET_ID = '12FoC4Vz0Yx0WxscjypMM8J3sN7WKaL23LgV6tdAS-Hg'
+sheet   = client.open_by_key(SHEET_ID).sheet1
 
 
 # --- 2. Fetch Data ---
 @st.cache_data(ttl=60)
 def get_dashboard_data():
-    creds = get_creds()
+    creds  = get_creds()
     client = gspread.authorize(creds)
-    SHEET_ID = '1DHW5uoNu02xpdsp6PB8OXlSNtD3Ig9PKXThZ5BGDg6g'  ## Proper Sheet
+    SHEET_ID = '12FoC4Vz0Yx0WxscjypMM8J3sN7WKaL23LgV6tdAS-Hg'
 
     opened_spreadsheet = client.open_by_key(SHEET_ID)
     main_sheet = opened_spreadsheet.sheet1
-    raw_main = main_sheet.get_all_values()
+    raw_main   = main_sheet.get_all_values()
 
     # Milestone Fetch
     raw_milestone = []
@@ -107,9 +107,7 @@ def get_dashboard_data():
     except Exception as e:
         print(f"Milestone fetch error: {e}")
 
-    # Formatting + Notes Fetch
-    # Added 'note' to the fields so cell notes (artist assignments) come back
-    # alongside the existing colour data in a single API call.
+    # Formatting + Notes — single API call
     session = AuthorizedSession(creds)
     url = (
         f"https://sheets.googleapis.com/v4/spreadsheets/{SHEET_ID}"
@@ -120,174 +118,238 @@ def get_dashboard_data():
     return raw_main, raw_milestone, response
 
 
-st.set_page_config(page_title="TileMap Stats Dashboard v49", layout="wide")
-st.title("📊 TileMap Stats Dashboard v49")
+# --- 3. Page Setup ---
+st.set_page_config(page_title="TileMap Stats Dashboard v50", layout="wide")
+st.title("📊 TileMap Stats Dashboard v50")
 
 raw_main, raw_milestone, formatting_response = get_dashboard_data()
 row_data = formatting_response.get('sheets', [{}])[0].get('data', [{}])[0].get('rowData', [])
 
 
-# --- 3. Step A: Calibration (unchanged from v48) ---
-legend_colors = {"25": None, "50": None, "75": None, "100": None}
-target_labels = ["0.25", ".25", "25%", "0.5", "0.50", ".5", "50%", "0.75", ".75", "75%", "1", "1.0", "100%"]
+# --- 4. Calibration (unchanged) ---
+legend_colors  = {"25": None, "50": None, "75": None, "100": None}
+target_labels  = ["0.25", ".25", "25%", "0.5", "0.50", ".5", "50%", "0.75", ".75", "75%", "1", "1.0", "100%"]
 
 for r_idx in range(0, 15):
     if r_idx < len(raw_main):
         for col_idx, text_val in enumerate(raw_main[r_idx]):
             clean_val = str(text_val).strip()
             if clean_val in target_labels:
-                label_key = "25" if "25" in clean_val else "50" if "50" in clean_val or clean_val in ["0.5", ".5"] else "75" if "75" in clean_val else "100"
+                label_key = (
+                    "25"  if "25"  in clean_val else
+                    "50"  if "50"  in clean_val or clean_val in ["0.5", ".5"] else
+                    "75"  if "75"  in clean_val else
+                    "100"
+                )
                 for offset in [1, 2]:
                     if col_idx - offset >= 0:
                         cell = row_data[r_idx]['values'][col_idx - offset] if col_idx - offset < len(row_data[r_idx]['values']) else {}
-                        bg = cell.get('userEnteredFormat', {}).get('backgroundColor')
+                        bg   = cell.get('userEnteredFormat', {}).get('backgroundColor')
                         if bg and not (bg.get('red', 0) == 1 and bg.get('green', 0) == 1 and bg.get('blue', 0) == 1):
                             legend_colors[label_key] = (bg.get('red', 0), bg.get('green', 0), bg.get('blue', 0))
                             break
 
 
-# --- 4. Step B: Processing ---
-tiles_25 = tiles_50 = tiles_75 = tiles_100 = 0
-map_points = []
-tile_color_lookup = {}
-
-
+# --- 5. Helper Functions ---
 def colors_match(rgb1, rgb2, tol=0.1):
     if rgb1 is None or rgb2 is None: return False
     return all(abs(a - b) < tol for a, b in zip(rgb1, rgb2))
 
-
 def clean_coord(val):
     cleaned = re.sub(r'[^0-9/-]', '', str(val))
-    parts = cleaned.split("/")
+    parts   = cleaned.split("/")
     return cleaned if len(parts) == 2 else None
 
-
 def parse_artist_from_note(note_text: str) -> str | None:
-    """
-    Extract a known artist name from a cell note.
-    Strips whitespace, lowercases, and checks against ARTIST_LOOKUP.
-    Returns the canonical artist name (e.g. 'James H') or None if no match.
-    """
     if not note_text:
         return None
-    # The note may contain additional text beyond just the artist name.
-    # Check each line and each word group for a match.
     for line in note_text.strip().splitlines():
         normalised = line.strip().lower()
         if normalised in ARTIST_LOOKUP:
             return ARTIST_LOOKUP[normalised]
     return None
 
+def completion_label(hex_color: str) -> str:
+    """Return the completion percentage label for a hex colour, or None."""
+    for label, c in COMPLETION_KEY.items():
+        if hex_color.lower() == c.lower():
+            return label
+    return None
+
+
+# --- 6. Build Full Tile Dataset ---
+# Every valid tile coordinate becomes one row in map_points.
+# Completion percentage is stored per-tile so we can re-aggregate after filtering.
+
+map_points       = []
+tile_color_lookup = {}
 
 for r_idx, row in enumerate(row_data):
     if r_idx < 14 or r_idx >= len(raw_main): continue
-    if 'values' in row:
-        current_text_row = raw_main[r_idx]
-        for c_idx, cell in enumerate(row['values']):
+    if 'values' not in row: continue
 
-            # Completion colour counting (unchanged from v48)
-            user_bg = cell.get('userEnteredFormat', {}).get('backgroundColor')
-            if user_bg:
-                u_rgb = (user_bg.get('red', 0), user_bg.get('green', 0), user_bg.get('blue', 0))
-                if sum(u_rgb) < 2.9 and sum(u_rgb) > 0:
-                    if colors_match(u_rgb, legend_colors["25"]):   tiles_25 += 1
-                    elif colors_match(u_rgb, legend_colors["50"]): tiles_50 += 1
-                    elif colors_match(u_rgb, legend_colors["75"]): tiles_75 += 1
-                    elif colors_match(u_rgb, legend_colors["100"]): tiles_100 += 1
+    current_text_row = raw_main[r_idx]
+    for c_idx, cell in enumerate(row['values']):
+        if c_idx >= len(current_text_row): continue
 
-            # TileMap Points — now also reads the cell note for artist name
-            if c_idx < len(current_text_row):
-                tile_name = str(current_text_row[c_idx]).strip()
-                coords = clean_coord(tile_name)
-                if coords:
-                    eff_bg = cell.get('effectiveFormat', {}).get('backgroundColor', {'red': 1, 'green': 1, 'blue': 1})
-                    hex_color = mcolors.to_hex((
-                        eff_bg.get('red', 0),
-                        eff_bg.get('green', 0),
-                        eff_bg.get('blue', 0)
-                    ))
+        tile_name = str(current_text_row[c_idx]).strip()
+        coords    = clean_coord(tile_name)
+        if not coords:
+            continue
 
-                    # Read the cell note and resolve to a known artist (or None)
-                    note_text = cell.get('note', '')
-                    artist = parse_artist_from_note(note_text)
+        # Background colour
+        eff_bg    = cell.get('effectiveFormat', {}).get('backgroundColor', {'red': 1, 'green': 1, 'blue': 1})
+        hex_color = mcolors.to_hex((eff_bg.get('red', 0), eff_bg.get('green', 0), eff_bg.get('blue', 0)))
+        tile_color_lookup[coords] = hex_color
 
-                    tile_color_lookup[coords] = hex_color
+        # Completion %  — derived from the cell's user-entered background colour
+        user_bg   = cell.get('userEnteredFormat', {}).get('backgroundColor')
+        comp_pct  = 0
+        if user_bg:
+            u_rgb = (user_bg.get('red', 0), user_bg.get('green', 0), user_bg.get('blue', 0))
+            if sum(u_rgb) < 2.9 and sum(u_rgb) > 0:
+                if   colors_match(u_rgb, legend_colors["25"]):  comp_pct = 25
+                elif colors_match(u_rgb, legend_colors["50"]):  comp_pct = 50
+                elif colors_match(u_rgb, legend_colors["75"]):  comp_pct = 75
+                elif colors_match(u_rgb, legend_colors["100"]): comp_pct = 100
 
-                    x_val, y_val = coords.split("/")
+        # Artist from note
+        note_text = cell.get('note', '')
+        artist    = parse_artist_from_note(note_text) or 'Unassigned'
 
-                    map_points.append({
-                        'x': int(x_val),
-                        'y': int(y_val),
-                        'color': hex_color,
-                        'name': tile_name,
-                        'artist': artist or 'Unassigned'  # fallback if note is blank/unrecognised
-                    })
+        x_val, y_val = coords.split("/")
+        map_points.append({
+            'x':       int(x_val),
+            'y':       int(y_val),
+            'color':   hex_color,
+            'name':    tile_name,
+            'artist':  artist,
+            'comp_pct': comp_pct
+        })
+
+df_map = pd.DataFrame(map_points) if map_points else pd.DataFrame(
+    columns=['x', 'y', 'color', 'name', 'artist', 'comp_pct']
+)
 
 
-# --- 5. UI Build ---
-remaining_work = (totalTiles - tiles_100) - ((tiles_25 * 0.25) + (tiles_50 * 0.5) + (tiles_75 * 0.75))
-man_days = round(remaining_work * MAN_DAY_MULTIPLIER)
+# ════════════════════════════════════════════════════════════════════
+#  🎨  ARTIST FILTER  — placed at the top, drives every section below
+# ════════════════════════════════════════════════════════════════════
 
 st.divider()
+
+artists_in_data  = sorted(df_map['artist'].dropna().unique().tolist())
+
+selected_artists = st.multiselect(
+    "🎨 Filter by Artist  —  all sections below update based on this selection",
+    options  = artists_in_data,
+    default  = artists_in_data,
+    help     = "Select one or more artists. All stats, milestones, the bar graph and the tilemap will reflect only the chosen artists."
+)
+
+# Single filtered DataFrame used by every section
+df_filtered = df_map[df_map['artist'].isin(selected_artists)].copy() if selected_artists else df_map.iloc[0:0].copy()
+
+# Tile count caption
+if selected_artists:
+    parts = [f"**{a}**: {len(df_filtered[df_filtered['artist'] == a])}" for a in selected_artists]
+    st.caption("  ·  ".join(parts))
+
+st.divider()
+
+
+# ════════════════════════════════════════════════════════════════════
+#  📊  TOP STATS  — counts derived from df_filtered
+# ════════════════════════════════════════════════════════════════════
+
+f_25  = int((df_filtered['comp_pct'] == 25).sum())
+f_50  = int((df_filtered['comp_pct'] == 50).sum())
+f_75  = int((df_filtered['comp_pct'] == 75).sum())
+f_100 = int((df_filtered['comp_pct'] == 100).sum())
+
+f_total     = len(df_filtered)
+f_remaining = (f_total - f_100) - ((f_25 * 0.25) + (f_50 * 0.5) + (f_75 * 0.75))
+f_man_days  = round(f_remaining * MAN_DAY_MULTIPLIER)
 
 m_cols = st.columns(7)
-m_cols[0].metric("Track Tiles", totalTiles)
-m_cols[1].metric("Tiles in Progress", tiles_25 + tiles_50 + tiles_75)
-m_cols[2].metric("# Progress at 25%", tiles_25)
-m_cols[3].metric("# Progress at 50%", tiles_50)
-m_cols[4].metric("# Progress at 75%", tiles_75)
-m_cols[5].metric("Tiles Complete", tiles_100)
-m_cols[6].metric("Man Days Left", f"{man_days}d")
+m_cols[0].metric("Tracked Tiles",       f_total)
+m_cols[1].metric("Tiles in Progress",   f_25 + f_50 + f_75)
+m_cols[2].metric("# Progress at 25%",   f_25)
+m_cols[3].metric("# Progress at 50%",   f_50)
+m_cols[4].metric("# Progress at 75%",   f_75)
+m_cols[5].metric("Tiles Complete",      f_100)
+m_cols[6].metric("Man Days Left",       f"{f_man_days}d")
 
 st.divider()
 
 
-# --- 6. Milestone Table (unchanged from v48) ---
+# ════════════════════════════════════════════════════════════════════
+#  🚩  MILESTONE TABLE  — only milestones that contain a filtered tile
+# ════════════════════════════════════════════════════════════════════
+
 st.subheader("🚩 Milestone Visual Status")
+
+# Set of tile coordinates belonging to the current filter — used for fast lookup
+filtered_coords = set(df_filtered['name'].tolist())
+
 if raw_milestone:
+    any_shown = False
     for row in raw_milestone[1:]:
-        if len(row) >= 3:
-            m_no = str(row[0]).strip()
-            m_expected_count = str(row[1]).strip()
-            m_tiles_text = str(row[2]).strip()
+        if len(row) < 3: continue
+        m_no             = str(row[0]).strip()
+        m_expected_count = str(row[1]).strip()
+        m_tiles_text     = str(row[2]).strip()
+        if not m_no or not m_tiles_text: continue
 
-            if not m_no or not m_tiles_text: continue
+        found_coords = re.findall(r'-?\d+/-?\d+', m_tiles_text)
+        if not found_coords: continue
 
-            found_coords = re.findall(r'-?\d+/-?\d+', m_tiles_text)
-            actual_count = len(found_coords)
+        # Only render this milestone if at least one tile belongs to a selected artist
+        artist_tiles_in_milestone = [c for c in found_coords if c in filtered_coords]
+        if not artist_tiles_in_milestone:
+            continue
 
-            if found_coords:
-                count_display = f"({actual_count} tiles)"
-                if m_expected_count.isdigit() and int(m_expected_count) != actual_count:
-                    count_display = f"⚠️ Mismatch: Found {actual_count} / Expected {m_expected_count}"
+        any_shown    = True
+        actual_count = len(found_coords)
+        count_display = f"({actual_count} tiles, {len(artist_tiles_in_milestone)} matching filter)"
+        if m_expected_count.isdigit() and int(m_expected_count) != actual_count:
+            count_display = f"⚠️ Mismatch: Found {actual_count} / Expected {m_expected_count}  ·  {len(artist_tiles_in_milestone)} matching filter"
 
-                html_chips = f"**M{m_no}** {count_display} &nbsp; "
+        html_chips = f"**M{m_no}** {count_display} &nbsp; "
 
-                for c in found_coords:
-                    bg = tile_color_lookup.get(c, "#ffffff")
-                    is_dark = mcolors.rgb_to_hsv(mcolors.to_rgb(bg))[2] < 0.5
-                    txt = "white" if is_dark else "black"
-                    html_chips += (
-                        f'<span style="background-color:{bg}; color:{txt}; padding:2px 6px; '
-                        f'border-radius:4px; border:1px solid #ddd; margin-right:4px; '
-                        f'font-family:monospace; font-size:12px;">{c}</span>'
-                    )
+        for c in found_coords:
+            bg      = tile_color_lookup.get(c, "#ffffff")
+            is_dark = mcolors.rgb_to_hsv(mcolors.to_rgb(bg))[2] < 0.5
+            txt     = "white" if is_dark else "black"
+            # Dim tiles that don't belong to the current filter so the artist's tiles stand out
+            opacity = "1.0" if c in filtered_coords else "0.25"
+            html_chips += (
+                f'<span style="background-color:{bg}; color:{txt}; opacity:{opacity}; '
+                f'padding:2px 6px; border-radius:4px; border:1px solid #ddd; '
+                f'margin-right:4px; font-family:monospace; font-size:12px;">{c}</span>'
+            )
 
-                st.markdown(html_chips, unsafe_allow_html=True)
+        st.markdown(html_chips, unsafe_allow_html=True)
+
+    if not any_shown:
+        st.info("No milestones contain tiles assigned to the selected artist(s).")
 else:
     st.warning("Milestone data not found in the spreadsheet.")
 
 st.divider()
 
 
-# --- 7. Progress and Station Assignment Tables (unchanged from v48) ---
+# ════════════════════════════════════════════════════════════════════
+#  📈  PROGRESS BAR GRAPH + STATION ASSIGNMENTS
+# ════════════════════════════════════════════════════════════════════
+
 col_l, col_r = st.columns([2, 1])
 
 with col_l:
     st.subheader("Progress Distribution")
-    labels = ['25% Done', '50% Done', '75% Done', '100% Done']
-    counts = [tiles_25, tiles_50, tiles_75, tiles_100]
+
+    labels     = ['25% Done', '50% Done', '75% Done', '100% Done']
+    counts     = [f_25, f_50, f_75, f_100]
     bar_colors = [COLOR_25, COLOR_50, COLOR_75, COLOR_100]
 
     fig, ax = plt.subplots(figsize=(10, 7))
@@ -297,8 +359,8 @@ with col_l:
 
     st.caption("Graph Color Legend (Editable in Script)")
     leg_1, leg_2, leg_3, leg_4 = st.columns(4)
-    leg_1.markdown(f"🔴 **25%:** `{COLOR_25}`"); leg_2.markdown(f"🟠 **50%:** `{COLOR_50}`")
-    leg_3.markdown(f"🟡 **75%:** `{COLOR_75}`"); leg_4.markdown(f"🟢 **100%:** `{COLOR_100}`")
+    leg_1.markdown(f"🔴 **25%:** `{COLOR_25}`");  leg_2.markdown(f"🟠 **50%:** `{COLOR_50}`")
+    leg_3.markdown(f"🟡 **75%:** `{COLOR_75}`");  leg_4.markdown(f"🟢 **100%:** `{COLOR_100}`")
 
 with col_r:
     st.subheader("Station Assignments")
@@ -306,8 +368,8 @@ with col_r:
     stations_data = [
         {
             'Station': str(raw_main[i][2]).strip(),
-            'Tile': str(raw_main[i][3]).strip(),
-            'Artist': str(raw_main[i][4]).strip()
+            'Tile':    str(raw_main[i][3]).strip(),
+            'Artist':  str(raw_main[i][4]).strip()
         }
         for i in range(10, min(45, len(raw_main)))
         if len(raw_main[i]) > 4 and str(raw_main[i][2]).strip() not in ['nan', 'None', 'Tile', ""]
@@ -320,7 +382,7 @@ with col_r:
             bg_color = tile_color_lookup.get(val, "#ffffff")
             if not isinstance(bg_color, str):
                 bg_color = "#ffffff"
-            rgb = mcolors.to_rgb(bg_color)
+            rgb        = mcolors.to_rgb(bg_color)
             brightness = mcolors.rgb_to_hsv(rgb)[2]
             text_color = "white" if brightness < 0.5 else "black"
             return f'background-color: {bg_color}; color: {text_color}'
@@ -333,39 +395,16 @@ with col_r:
 st.divider()
 
 
-# --- 8. Visual Tilemap with Artist Filter ---
+# ════════════════════════════════════════════════════════════════════
+#  🗺️  VISUAL TILEMAP
+# ════════════════════════════════════════════════════════════════════
+
 st.subheader("📍 Interactive Visual TileMap")
 
-if map_points:
-    df_map = pd.DataFrame(map_points)
-
-    # ── Artist Filter ────────────────────────────────────────────────────────────
-    # Only show artists that actually appear in the current tile data.
-    # "All Artists" is always the default — selecting specific names narrows the map.
-    artists_in_data = sorted(df_map['artist'].dropna().unique().tolist())
-
-    selected_artists = st.multiselect(
-        "🎨 Filter by Artist",
-        options=artists_in_data,
-        default=artists_in_data,
-        help="Select one or more artists to highlight their tiles. Deselect all to hide all tiles."
-    )
-
-    # Apply filter — tiles not matching the selection are hidden from the plot
-    df_filtered = df_map[df_map['artist'].isin(selected_artists)] if selected_artists else df_map.iloc[0:0]
-
-    # Show a small summary count beneath the filter
-    if selected_artists:
-        summary_parts = []
-        for artist in selected_artists:
-            count = len(df_map[df_map['artist'] == artist])
-            summary_parts.append(f"**{artist}**: {count}")
-        st.caption("  ·  ".join(summary_parts))
-
-    # ── Build Figure ─────────────────────────────────────────────────────────────
+if not df_map.empty:
     fig_map = go.Figure()
 
-    # Completion Legend (dummy traces)
+    # Completion Legend
     for label, color in COMPLETION_KEY.items():
         fig_map.add_trace(go.Scatter(
             x=[None], y=[None], mode='markers',
@@ -375,7 +414,7 @@ if map_points:
             name=label, showlegend=True
         ))
 
-    # Assignment Legend (dummy traces)
+    # Assignment Legend
     for label, color in ASSIGNMENT_KEY.items():
         fig_map.add_trace(go.Scatter(
             x=[None], y=[None], mode='markers',
@@ -385,7 +424,7 @@ if map_points:
             name=label, showlegend=True
         ))
 
-    # Actual tile data — filtered
+    # Filtered tile data
     if not df_filtered.empty:
         fig_map.add_trace(go.Scatter(
             x=df_filtered['x'],
@@ -396,9 +435,8 @@ if map_points:
                 color=df_filtered['color'],
                 line=dict(width=1, color='DarkSlateGrey')
             ),
-            # Hover shows tile coordinate + artist name from note
             text=df_filtered.apply(
-                lambda r: f"{r['name']}<br>Artist: {r['artist']}", axis=1
+                lambda r: f"{r['name']}<br>Artist: {r['artist']}<br>Completion: {r['comp_pct']}%", axis=1
             ),
             hoverinfo='text',
             showlegend=False
