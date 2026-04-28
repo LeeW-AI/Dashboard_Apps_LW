@@ -1,6 +1,11 @@
-####### ---  Tilemap Stats Dashboard Web App v50  ------########
+####### ---  Tilemap Stats Dashboard Web App v51  ------########
 
-## v49 Baseline — artist assignment via cell notes
+## v50 Baseline — global artist filter
+## v51 Changes:
+##     - Added ArtistTBD to the known artist list and assignment key
+##     - Tracked Tiles = tiles with a real artist assigned (excludes Not Included + Unassigned)
+##       When filtered by specific artist(s), shows only those artists' tile count
+##     - Man Days = Tracked Tiles * 1.85 (total capacity, not remaining work)
 ## v50 Artist filter moved to the top of the page and now drives ALL sections:
 ##     - Top Stats (tile counts, man days)
 ##     - Milestone section (only milestones containing that artist's tiles shown)
@@ -49,6 +54,7 @@ ASSIGNMENT_KEY = {
     "Iain":         "#a64d79",
     "James H":      "#ea9999",
     "TomH":         "#ffe599",
+    "ArtistTBD":    "#cccccc",
     "Unassigned":   "#c6d9f0",
     "Not Included": "#b7b7b7"
 }
@@ -56,8 +62,11 @@ ASSIGNMENT_KEY = {
 # 📋 Known artist names — only cells whose note matches one of these are tracked.
 KNOWN_ARTISTS = [
     "Kaya", "Greg", "Natalia", "Elliott", "Ryan",
-    "Iain", "James H", "TomH", "Unassigned", "Not Included"
+    "Iain", "James H", "TomH", "ArtistTBD", "Unassigned", "Not Included"
 ]
+
+# Artists that count as "real" assignments — excluded from Tracked Tiles total
+EXCLUDED_FROM_TRACKING = {"Unassigned", "Not Included"}
 ARTIST_LOOKUP = {a.lower(): a for a in KNOWN_ARTISTS}
 
 # Sync legacy colour variables
@@ -82,7 +91,8 @@ def get_creds():
 
 creds   = get_creds()
 client  = gspread.authorize(creds)
-SHEET_ID = '1DHW5uoNu02xpdsp6PB8OXlSNtD3Ig9PKXThZ5BGDg6g' # Test Sheet
+SHEET_ID = '1DHW5uoNu02xpdsp6PB8OXlSNtD3Ig9PKXThZ5BGDg6g' ## Test Sheet
+##SHEET_ID = '12FoC4Vz0Yx0WxscjypMM8J3sN7WKaL23LgV6tdAS-Hg'
 sheet   = client.open_by_key(SHEET_ID).sheet1
 
 
@@ -91,7 +101,8 @@ sheet   = client.open_by_key(SHEET_ID).sheet1
 def get_dashboard_data():
     creds  = get_creds()
     client = gspread.authorize(creds)
-    SHEET_ID = '1DHW5uoNu02xpdsp6PB8OXlSNtD3Ig9PKXThZ5BGDg6g' # Test Sheet
+    SHEET_ID = '1DHW5uoNu02xpdsp6PB8OXlSNtD3Ig9PKXThZ5BGDg6g' ## Test Sheet
+    ## SHEET_ID = '12FoC4Vz0Yx0WxscjypMM8J3sN7WKaL23LgV6tdAS-Hg'
 
     opened_spreadsheet = client.open_by_key(SHEET_ID)
     main_sheet = opened_spreadsheet.sheet1
@@ -119,8 +130,8 @@ def get_dashboard_data():
 
 
 # --- 3. Page Setup ---
-st.set_page_config(page_title="TileMap Stats Dashboard v50", layout="wide")
-st.title("📊 TileMap Stats Dashboard v50")
+st.set_page_config(page_title="TileMap Stats Dashboard v51", layout="wide")
+st.title("📊 TileMap Stats Dashboard v51")
 
 raw_main, raw_milestone, formatting_response = get_dashboard_data()
 row_data = formatting_response.get('sheets', [{}])[0].get('data', [{}])[0].get('rowData', [])
@@ -267,18 +278,22 @@ f_50  = int((df_filtered['comp_pct'] == 50).sum())
 f_75  = int((df_filtered['comp_pct'] == 75).sum())
 f_100 = int((df_filtered['comp_pct'] == 100).sum())
 
-f_total     = len(df_filtered)
-f_remaining = (f_total - f_100) - ((f_25 * 0.25) + (f_50 * 0.5) + (f_75 * 0.75))
-f_man_days  = round(f_remaining * MAN_DAY_MULTIPLIER)
+# Tracked Tiles = only real artist assignments (no Unassigned / Not Included)
+# When filtering by specific artists, df_filtered already scopes this correctly.
+# When showing all artists, we still exclude the non-tracked categories.
+f_tracked  = len(df_filtered[~df_filtered['artist'].isin(EXCLUDED_FROM_TRACKING)])
+
+# Man Days = total tracked tile capacity (not remaining work)
+f_man_days = round(f_tracked * MAN_DAY_MULTIPLIER)
 
 m_cols = st.columns(7)
-m_cols[0].metric("Tracked Tiles",       f_total)
+m_cols[0].metric("Tracked Tiles",       f_tracked)
 m_cols[1].metric("Tiles in Progress",   f_25 + f_50 + f_75)
 m_cols[2].metric("# Progress at 25%",   f_25)
 m_cols[3].metric("# Progress at 50%",   f_50)
 m_cols[4].metric("# Progress at 75%",   f_75)
 m_cols[5].metric("Tiles Complete",      f_100)
-m_cols[6].metric("Man Days Left",       f"{f_man_days}d")
+m_cols[6].metric("Man Days Total",      f"{f_man_days}d")
 
 st.divider()
 
