@@ -1,6 +1,16 @@
-####### ---  Tilemap Stats Dashboard Web App v52  ------########
+####### ---  Tilemap Stats Dashboard Web App v53  ------########
 
-## v51 Baseline — global artist filter, ArtistTBD, tracked tiles, man days capacity
+## v52 Baseline — project timeline, artist remaining days, comments, per-tile days, tile request
+## v53 Changes:
+##     1. Clicking a tile on the tilemap auto-populates the tile in the sidebar request form
+##        via st.session_state + plotly_events (streamlit-plotly-events package).
+##     2. Sidebar tile request now supports selecting multiple tiles in one request.
+##     3. Artist filter keeps Unassigned visible in the tilemap by default.
+##        Stats still exclude Unassigned/Not Included from tracked counts.
+##     4. parse_note() now handles 3-line notes: Station / Artist / Days (all optional).
+##        Station name is preserved but not used in stats. Days defaults to 1.85.
+##     5. Page title shows today's date as a styled date badge (no emoji icon number).
+
 ## v52 Changes:
 ##     1. Project Man Day Progress bar — working days from 3 Mar 2026 to 31 Jul 2026,
 ##        orange = elapsed, green = remaining. Shown above top stats.
@@ -38,6 +48,14 @@ import plotly.graph_objects as go
 from datetime import date, datetime, timedelta
 import numpy as np
 import urllib.parse
+
+# streamlit-plotly-events enables click events from Plotly charts back into Streamlit.
+# Add to requirements.txt: streamlit-plotly-events
+try:
+    from streamlit_plotly_events import plotly_events
+    PLOTLY_EVENTS_AVAILABLE = True
+except ImportError:
+    PLOTLY_EVENTS_AVAILABLE = False
 
 # --- ⚙️ CONFIGURABLE SETTINGS ---
 MAN_DAY_MULTIPLIER = 1.85
@@ -168,8 +186,32 @@ def working_days_in_ranges(holiday_rows: list, artist_name: str) -> int:
 
 
 # ── Page Setup ───────────────────────────────────────────────────────────────────
-st.set_page_config(page_title="TileMap Stats Dashboard v52", layout="wide")
-st.title("📊 TileMap Stats Dashboard v52")
+st.set_page_config(page_title="TileMap Stats Dashboard v53", layout="wide")
+
+# Header with today's date badge instead of a generic icon (#5)
+today = date.today()
+st.markdown(
+    f"""
+    <div style="display:flex; align-items:center; gap:16px; margin-bottom:8px;">
+      <div style="background:#1a73e8; color:white; border-radius:10px; padding:6px 14px;
+                  text-align:center; min-width:60px; font-family:sans-serif; line-height:1.2;">
+        <div style="font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:1px;">
+          {today.strftime('%b')}
+        </div>
+        <div style="font-size:26px; font-weight:700; line-height:1;">{today.day}</div>
+      </div>
+      <div>
+        <h2 style="margin:0; padding:0; font-size:1.6rem;">TileMap Stats Dashboard</h2>
+        <div style="color:#888; font-size:0.85rem;">v53 · {today.strftime('%A %d %B %Y')}</div>
+      </div>
+    </div>
+    """,
+    unsafe_allow_html=True
+)
+
+# Session state: tracks which tiles the user has clicked/selected for the request form
+if 'selected_request_tiles' not in st.session_state:
+    st.session_state.selected_request_tiles = []
 
 raw_main, raw_milestone, raw_holidays, raw_contacts, raw_comments, formatting_response = get_dashboard_data()
 row_data = formatting_response.get('sheets', [{}])[0].get('data', [{}])[0].get('rowData', [])
@@ -217,31 +259,44 @@ def clean_coord(val):
     parts = cleaned.split("/")
     return cleaned if len(parts) == 2 else None
 
-def parse_note(note_text: str) -> tuple[str | None, float]:
+def parse_note(note_text: str) -> tuple[str | None, float, str | None]:
     """
-    Parse a cell note to extract artist name and optional day override.
-    Format examples:
-        "Iain"          → artist="Iain",  days=1.85 (default)
-        "Iain\n3.5"     → artist="Iain",  days=3.5
-        "Ryan\n2"       → artist="Ryan",  days=2.0
-    Returns (artist_name_or_None, day_value).
+    Parse a cell note to extract station name, artist name, and optional day override.
+
+    Supported formats (all lines optional, order is: station first if present, then artist, then days):
+        "Iain"                  → station=None,       artist="Iain",  days=1.85
+        "Iain\\n3.5"            → station=None,       artist="Iain",  days=3.5
+        "Station A\\nIain"      → station="Station A", artist="Iain",  days=1.85
+        "Station A\\nIain\\n3.5"→ station="Station A", artist="Iain",  days=3.5
+
+    Strategy: scan every line — if it matches a known artist it's the artist,
+    if it parses as a float it's the day value, otherwise it's the station name.
+    Returns (artist_or_None, day_value, station_or_None).
     """
     if not note_text:
-        return None, MAN_DAY_MULTIPLIER
-    lines = note_text.strip().splitlines()
-    artist = None
+        return None, MAN_DAY_MULTIPLIER, None
+
+    lines   = note_text.strip().splitlines()
+    artist  = None
     day_val = MAN_DAY_MULTIPLIER
+    station = None
+
     for line in lines:
-        norm = line.strip().lower()
+        stripped = line.strip()
+        norm     = stripped.lower()
+        if not stripped:
+            continue
         if norm in ARTIST_LOOKUP:
             artist = ARTIST_LOOKUP[norm]
         else:
-            # Try to parse as a number (day override)
             try:
-                day_val = float(line.strip())
+                day_val = float(stripped)
             except ValueError:
-                pass
-    return artist, day_val
+                # Not an artist name, not a number → treat as station name
+                if station is None:
+                    station = stripped
+
+    return artist, day_val, station
 
 
 # ── Build Full Tile Dataset ──────────────────────────────────────────────────────
@@ -274,10 +329,10 @@ for r_idx, row in enumerate(row_data):
                 elif colors_match(u_rgb, legend_colors["75"]):  comp_pct = 75
                 elif colors_match(u_rgb, legend_colors["100"]): comp_pct = 100
 
-        # Parse note → artist + per-tile day override (#4)
-        note_text        = cell.get('note', '')
-        artist, day_val  = parse_note(note_text)
-        artist           = artist or 'Unassigned'
+        # Parse note → station + artist + per-tile day override (#4)
+        note_text               = cell.get('note', '')
+        artist, day_val, station = parse_note(note_text)
+        artist                  = artist or 'Unassigned'
 
         x_val, y_val = coords.split("/")
         map_points.append({
@@ -286,12 +341,13 @@ for r_idx, row in enumerate(row_data):
             'color':    hex_color,
             'name':     tile_name,
             'artist':   artist,
+            'station':  station or '',
             'comp_pct': comp_pct,
-            'day_val':  day_val   # per-tile day cost, used in remaining days calc
+            'day_val':  day_val
         })
 
 df_map = pd.DataFrame(map_points) if map_points else pd.DataFrame(
-    columns=['x', 'y', 'color', 'name', 'artist', 'comp_pct', 'day_val']
+    columns=['x', 'y', 'color', 'name', 'artist', 'station', 'comp_pct', 'day_val']
 )
 
 
@@ -301,8 +357,7 @@ df_map = pd.DataFrame(map_points) if map_points else pd.DataFrame(
 
 st.divider()
 
-today              = date.today()
-total_proj_days    = working_days_between(PROJECT_START, PROJECT_END)
+total_proj_days     = working_days_between(PROJECT_START, PROJECT_END)
 elapsed_proj_days  = working_days_between(PROJECT_START, min(today, PROJECT_END))
 remaining_proj_days = max(0, total_proj_days - elapsed_proj_days)
 elapsed_pct        = round(elapsed_proj_days / total_proj_days * 100, 1) if total_proj_days else 0
@@ -344,11 +399,13 @@ st.divider()
 
 artists_in_data  = sorted(df_map['artist'].dropna().unique().tolist())
 
+# Unassigned is included in the default selection for tilemap visibility (#3).
+# Stats calculations still exclude EXCLUDED_FROM_TRACKING internally.
 selected_artists = st.multiselect(
     "🎨 Filter by Artist  —  all sections below update based on this selection",
     options = artists_in_data,
     default = artists_in_data,
-    help    = "Select one or more artists. All stats, milestones, bar graph and tilemap reflect only chosen artists."
+    help    = "Unassigned tiles are included by default for tilemap context. Stats exclude Unassigned/Not Included from tracked counts regardless."
 )
 
 df_filtered = df_map[df_map['artist'].isin(selected_artists)].copy() if selected_artists else df_map.iloc[0:0].copy()
@@ -521,57 +578,93 @@ st.divider()
 
 
 # ════════════════════════════════════════════════════════════════════
-#  🗺️  VISUAL TILEMAP  +  SIDEBAR TILE REQUEST (#5)
+#  🗺️  VISUAL TILEMAP  +  SIDEBAR TILE REQUEST
 # ════════════════════════════════════════════════════════════════════
 
 st.subheader("📍 Interactive Visual TileMap")
 
-# ── Sidebar: Tile Access Request ─────────────────────────────────────────────────
+# ── Sidebar: Multi-tile Access Request ───────────────────────────────────────────
 with st.sidebar:
     st.header("📬 Request Tile Access")
-    st.caption("Select a tile below to request access from the assigned artist.")
+    st.caption(
+        "Click tiles on the map to add them to your request, or use the selector below. "
+        "Multiple tiles can be included in one request."
+    )
 
-    # Build tile options from filtered map (only assigned, non-excluded tiles)
-    requestable_tiles = df_map[~df_map['artist'].isin(EXCLUDED_FROM_TRACKING)]['name'].sort_values().tolist()
-    selected_tile     = st.selectbox("Select Tile", options=["— select —"] + requestable_tiles)
+    # All requestable tiles (non-excluded)
+    requestable_tiles = sorted(
+        df_map[~df_map['artist'].isin(EXCLUDED_FROM_TRACKING)]['name'].tolist()
+    )
 
-    if selected_tile and selected_tile != "— select —":
-        tile_row    = df_map[df_map['name'] == selected_tile].iloc[0]
-        tile_artist = tile_row['artist']
-        artist_email = contacts_lookup.get(tile_artist, "")
+    # Multi-select — pre-populated from map clicks via session state (#1 & #2)
+    selected_request_tiles = st.multiselect(
+        "Selected Tiles",
+        options  = requestable_tiles,
+        default  = st.session_state.selected_request_tiles,
+        key      = "tile_request_multiselect",
+        help     = "Click tiles on the map to add them here, or select manually."
+    )
+    # Keep session state in sync with the widget
+    st.session_state.selected_request_tiles = selected_request_tiles
 
-        st.markdown(f"**Tile:** `{selected_tile}`")
-        st.markdown(f"**Assigned Artist:** {tile_artist}")
-        if artist_email:
-            st.markdown(f"**Email:** {artist_email}")
-        else:
-            st.warning("No email found for this artist in the Contacts sheet.")
+    if st.button("🗑️ Clear Selection", use_container_width=True):
+        st.session_state.selected_request_tiles = []
+        st.rerun()
 
-        requester_name = st.text_input("Your Name")
-        req_date_from  = st.date_input("Date From", value=date.today())
-        req_date_to    = st.date_input("Date To",   value=date.today() + timedelta(days=2))
+    if selected_request_tiles:
+        # Determine the artist(s) for the selected tiles
+        selected_rows   = df_map[df_map['name'].isin(selected_request_tiles)]
+        artists_for_req = selected_rows['artist'].unique().tolist()
 
-        if st.button("📧 Send Request", disabled=not artist_email):
-            subject = f"Tile Access Request: {selected_tile}"
-            body = (
-                f"Hi {tile_artist},\n\n"
-                f"{requester_name} is requesting access to tile {selected_tile}.\n\n"
-                f"Requested dates: {req_date_from.strftime('%d %b %Y')} – {req_date_to.strftime('%d %b %Y')}\n\n"
-                f"Please confirm availability at your earliest convenience.\n\n"
-                f"Thanks"
-            )
-            mailto = f"mailto:{urllib.parse.quote(artist_email)}?subject={urllib.parse.quote(subject)}&body={urllib.parse.quote(body)}"
-            # Open the user's email client with a pre-filled email
-            st.markdown(
-                f'<a href="{mailto}" target="_blank">'
-                f'<button style="background:#4285f4;color:white;border:none;padding:8px 16px;'
-                f'border-radius:6px;cursor:pointer;font-size:14px;">📧 Open Email Client</button></a>',
-                unsafe_allow_html=True
-            )
-            st.success(f"Click the button above to send your request to {tile_artist}.")
+        st.markdown("---")
+        for art in artists_for_req:
+            art_tiles = selected_rows[selected_rows['artist'] == art]['name'].tolist()
+            email     = contacts_lookup.get(art, "")
+            st.markdown(f"**{art}** ({len(art_tiles)} tile{'s' if len(art_tiles) > 1 else ''})")
+            if email:
+                st.caption(f"📧 {email}")
+            else:
+                st.caption("⚠️ No email on file")
+
+        st.markdown("---")
+        requester_name = st.text_input("Your Name", key="req_name")
+        req_date_from  = st.date_input("Date From", value=date.today(),        key="req_from")
+        req_date_to    = st.date_input("Date To",   value=date.today() + timedelta(days=2), key="req_to")
+
+        if st.button("📧 Generate Request Email(s)", use_container_width=True):
+            # Build one mailto per artist (tiles may span multiple artists)
+            for art in artists_for_req:
+                art_tiles = selected_rows[selected_rows['artist'] == art]['name'].tolist()
+                email     = contacts_lookup.get(art, "")
+                if not email:
+                    st.warning(f"No email for {art} — skipping.")
+                    continue
+
+                tile_list = ", ".join(art_tiles)
+                subject   = f"Tile Access Request: {tile_list}"
+                body = (
+                    f"Hi {art},\n\n"
+                    f"{requester_name or 'A team member'} is requesting access to the following "
+                    f"tile{'s' if len(art_tiles) > 1 else ''}:\n\n"
+                    f"{chr(10).join(f'  • {t}' for t in art_tiles)}\n\n"
+                    f"Requested dates: {req_date_from.strftime('%d %b %Y')} – {req_date_to.strftime('%d %b %Y')}\n\n"
+                    f"Please confirm availability at your earliest convenience.\n\nThanks"
+                )
+                mailto = (
+                    f"mailto:{urllib.parse.quote(email)}"
+                    f"?subject={urllib.parse.quote(subject)}"
+                    f"&body={urllib.parse.quote(body)}"
+                )
+                st.markdown(
+                    f'<a href="{mailto}" target="_blank">'
+                    f'<button style="background:#4285f4;color:white;border:none;padding:8px 16px;'
+                    f'border-radius:6px;cursor:pointer;font-size:13px;width:100%;margin-bottom:6px;">'
+                    f'📧 Email {art}</button></a>',
+                    unsafe_allow_html=True
+                )
 
     st.divider()
-    st.caption("💡 Tile access requests open your local email client pre-filled with the request details.")
+    st.caption("💡 Click a tile on the map to auto-add it to the request form.")
 
 
 # ── Tilemap Figure ────────────────────────────────────────────────────────────────
@@ -595,33 +688,74 @@ if not df_map.empty:
         ))
 
     if not df_filtered.empty:
+        # Highlight any tiles already in the request selection
+        marker_sizes  = df_filtered['name'].apply(
+            lambda n: 24 if n in st.session_state.selected_request_tiles else 18
+        )
+        marker_lines  = df_filtered['name'].apply(
+            lambda n: dict(width=3, color='#1a73e8') if n in st.session_state.selected_request_tiles
+                      else dict(width=1, color='DarkSlateGrey')
+        )
+
         fig_map.add_trace(go.Scatter(
             x=df_filtered['x'], y=df_filtered['y'],
             mode='markers',
-            marker=dict(size=18, symbol='square', color=df_filtered['color'],
-                        line=dict(width=1, color='DarkSlateGrey')),
+            marker=dict(
+                size=marker_sizes.tolist(),
+                symbol='square',
+                color=df_filtered['color'],
+                line=dict(
+                    width=[m['width'] for m in marker_lines],
+                    color=[m['color'] for m in marker_lines]
+                )
+            ),
             text=df_filtered.apply(
                 lambda r: (
-                    f"{r['name']}<br>Artist: {r['artist']}"
-                    f"<br>Completion: {r['comp_pct']}%"
+                    f"<b>{r['name']}</b><br>"
+                    f"Artist: {r['artist']}"
+                    + (f"<br>Station: {r['station']}" if r['station'] else "")
+                    + f"<br>Completion: {r['comp_pct']}%"
                     f"<br>Day Value: {r['day_val']}"
-                    f"<br><i>Select tile in sidebar to request access</i>"
+                    f"<br><i>Click to add to request form</i>"
                 ), axis=1
             ),
-            hoverinfo='text', showlegend=False
+            customdata=df_filtered['name'],
+            hoverinfo='text',
+            showlegend=False
         ))
 
     fig_map.update_layout(
         plot_bgcolor=COLOR_GRID, width=1000, height=800,
         xaxis=dict(scaleanchor="y", scaleratio=1, side='top'),
         yaxis=dict(autorange="reversed"),
+        clickmode='event',
         legend=dict(
             bgcolor="rgba(255, 255, 255, 0.9)", bordercolor="DarkSlateGrey",
             borderwidth=1, tracegroupgap=80, itemsizing='constant',
             itemwidth=40, font=dict(family="Arial", size=18, color="black")
         )
     )
-    st.plotly_chart(fig_map, use_container_width=True)
+
+    # ── Render with click events if streamlit-plotly-events is available ──────────
+    if PLOTLY_EVENTS_AVAILABLE:
+        clicked = plotly_events(fig_map, click_event=True, key="tilemap_clicks")
+        if clicked:
+            for pt in clicked:
+                # customdata holds the tile name
+                tile_name_clicked = pt.get('customdata')
+                if (tile_name_clicked and
+                    tile_name_clicked in requestable_tiles and
+                    tile_name_clicked not in st.session_state.selected_request_tiles):
+                    st.session_state.selected_request_tiles.append(tile_name_clicked)
+                    st.rerun()
+        st.caption("💡 Click any tile to add it to the sidebar request form.")
+    else:
+        # Fallback: standard plotly chart (no click events)
+        st.plotly_chart(fig_map, use_container_width=True)
+        st.caption(
+            "ℹ️ Add `streamlit-plotly-events` to requirements.txt to enable "
+            "click-to-select tiles on the map."
+        )
 
 else:
     st.warning("No tile map data found.")
