@@ -669,7 +669,7 @@ st.subheader("📍 Interactive Visual TileMap")
 # ── Sidebar: Multi-tile Access Request ───────────────────────────────────────────
 with st.sidebar:
     st.header("📬 Request Tile Access")
-    st.caption("Select tiles using the selector below the map, then fill in the form here.")
+    st.caption("Select tiles using the dropdown list below, then fill in the form.")
 
     # Requestable tiles: exclude Unassigned and Not Included (#2)
     requestable_tiles = sorted(
@@ -682,13 +682,9 @@ with st.sidebar:
         options = requestable_tiles,
         default = st.session_state.selected_request_tiles,
         key     = "tile_request_multiselect",
-        help    = "Use the tile selector below the map, or add tiles directly here."
+        help    = "Pick tiles directly from the list."
     )
     st.session_state.selected_request_tiles = selected_request_tiles
-
-    if st.button("🗑️ Clear Selection", use_container_width=True):
-        st.session_state.selected_request_tiles = []
-        st.rerun()
 
     if selected_request_tiles:
         selected_rows   = df_map[df_map['name'].isin(selected_request_tiles)]
@@ -767,8 +763,6 @@ with st.sidebar:
                     )
 
     st.divider()
-    st.caption("💡 Select tiles using the multi-select below the tilemap, then fill in your name and dates here.")
-
 
 # ── Tilemap Figure ────────────────────────────────────────────────────────────────
 if not df_map.empty:
