@@ -1,4 +1,12 @@
-####### ---  Tilemap Stats Dashboard Web App v55  ------########
+####### ---  Tilemap Stats Dashboard Web App v56  ------########
+
+## v55 bugs and features to update for v56
+## Remove the tile request fields from below the visual tilemap, just keep the version in the sidebar.
+## When adding a comment, clear the fields when it's added.
+## Add a button to delete a comment, ask to confirm before deleting from the table/sheet
+## It's not getting the holidays from the sheet?
+## When filtering by an Artist, if I then add Unassigned to the filter don't add any addiitonal stats for Unassigned, only show the Artist stats.
+## 
 
 ## v53 Baseline — date badge header, 3-line note parsing, multi-tile request, Unassigned filter fix
 ## v54 Changes:
@@ -121,7 +129,7 @@ def get_dashboard_data():
         for ws in all_sheets:
             t = ws.title
             if "Milestone" in t: raw_milestone = ws.get_all_values()
-            if "Holiday"   in t: raw_holidays  = ws.get_all_values()
+            if "Holidays"   in t: raw_holidays  = ws.get_all_values()
             if "Contact"   in t: raw_contacts  = ws.get_all_values()
             if "Comment"   in t: raw_comments  = ws.get_all_values()
     except Exception as e:
@@ -424,7 +432,7 @@ elapsed_pct        = round(elapsed_proj_days / total_proj_days * 100, 1) if tota
 st.subheader("📅 Project Timeline")
 
 proj_cols = st.columns([2, 1, 1, 1])
-proj_cols[0].markdown(f"**Dev Complete:** 31 July 2026 &nbsp;·&nbsp; **Start:** 3 March 2026")
+proj_cols[0].markdown(f"**Start:** 3 March 2026 &nbsp;·&nbsp; **Dev Complete:** 31 July 2026") # updated for v56
 proj_cols[1].metric("Total Working Days", total_proj_days)
 proj_cols[2].metric("Days Elapsed",       elapsed_proj_days)
 proj_cols[3].metric("Days Remaining",     remaining_proj_days)
@@ -727,7 +735,7 @@ with st.sidebar:
                     f"&body={urllib.parse.quote(body_plain)}"
                 )
 
-                # Gmail web compose — percent-encode manually so spaces become %20
+	                # Gmail web compose — percent-encode manually so spaces become %20
                 # and newlines become %0A (Gmail ignores + encoded spaces in body)
                 def gmail_encode(s: str) -> str:
                     return urllib.parse.quote(s, safe='')
@@ -829,31 +837,8 @@ if not df_map.empty:
 else:
     st.warning("No tile map data found.")
 
-# ── Tile selector below map — feeds the sidebar request form (#1) ─────────────────
-st.markdown("**🔲 Add tiles to access request:**")
-tile_pick_cols = st.columns([4, 1])
-with tile_pick_cols[0]:
-    picked_tiles = st.multiselect(
-        "Search and select tiles",
-        options     = requestable_tiles,
-        default     = [],          # always empty — user picks fresh each time
-        key         = "map_tile_picker",
-        label_visibility = "collapsed",
-        placeholder = "Type a tile coordinate to search, e.g. -83/-265 ..."
-    )
-with tile_pick_cols[1]:
-    if st.button("Add to Request →", use_container_width=True):
-        added = 0
-        for t in picked_tiles:
-            if t not in st.session_state.selected_request_tiles:
-                st.session_state.selected_request_tiles.append(t)
-                added += 1
-        if added:
-            st.rerun()
-        else:
-            st.toast("All selected tiles are already in the request list.")
 
-st.caption(f"{len(st.session_state.selected_request_tiles)} tile(s) in request — see sidebar to fill in details and send.")
+## Removed Tile picker from here, don't need this picker below the visual tilemap
 
 st.divider()
 
