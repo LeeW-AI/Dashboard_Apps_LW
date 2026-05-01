@@ -6,7 +6,8 @@
 ## Add a button to delete a comment, ask to confirm before deleting from the table/sheet
 ## It's not getting the holidays from the sheet?
 ## When filtering by an Artist, if I then add Unassigned to the filter don't add any addiitonal stats for Unassigned, only show the Artist stats.
-## 
+## Only display Artist name and not email address in the sidebar request.
+
 
 ## v53 Baseline — date badge header, 3-line note parsing, multi-tile request, Unassigned filter fix
 ## v54 Changes:
@@ -153,7 +154,7 @@ def working_days_between(start: date, end: date) -> int:
     days = pd.bdate_range(start=start, end=end)
     return len(days)
 
-def working_days_in_ranges(holiday_rows: list, artist_name: str, from_date: date | None = None) -> int:
+def working_days_in_ranges(holidays_rows: list, artist_name: str, from_date: date | None = None) -> int:
     """
     Total holiday days for a given artist from the Holidays sheet.
     Sheet columns: Artist | Start Date | End Date | Days
@@ -161,7 +162,7 @@ def working_days_in_ranges(holiday_rows: list, artist_name: str, from_date: date
     If from_date is set, only counts holidays starting on or after that date.
     """
     total = 0
-    for row in holiday_rows:
+    for row in holidays_rows:
         if len(row) < 3: continue
         if row[0].strip().lower() != artist_name.lower(): continue
 
