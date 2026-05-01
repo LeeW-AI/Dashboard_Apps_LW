@@ -1,12 +1,12 @@
-####### ---  Tilemap Stats Dashboard Web App v56  ------########
+####### ---  Tilemap Stats Dashboard Web App v57  ------########
 
-## v55 bugs and features to update for v56
-## Remove the tile request fields from below the visual tilemap, just keep the version in the sidebar.
-## When adding a comment, clear the fields when it's added.
-## Add a button to delete a comment, ask to confirm before deleting from the table/sheet
-## It's not getting the holidays from the sheet?
-## When filtering by an Artist, if I then add Unassigned to the filter don't add any addiitonal stats for Unassigned, only show the Artist stats.
-## Only display Artist name and not email address in the sidebar request.
+## v56 Baseline — sidebar-only tile request, cleaned up UI
+## v57 Changes:
+##     1. Unassigned in artist filter only affects tilemap — never counted in stats
+##     2. Comment form fields clear after successful save (session state counter trick)
+##     3. Delete button per comment row with confirmation dialog
+##     4. Holiday date parser handles "22 April" format (no year) with alias map
+##        for artist name mismatches (e.g. "James" in sheet → "JamesH" in code)
 
 
 ## v53 Baseline — date badge header, 3-line note parsing, multi-tile request, Unassigned filter fix
@@ -154,41 +154,82 @@ def working_days_between(start: date, end: date) -> int:
     days = pd.bdate_range(start=start, end=end)
     return len(days)
 
+# Maps artist names as they appear in the Holidays sheet → canonical KNOWN_ARTISTS name.
+# Add any mismatches here without touching the rest of the code.
+HOLIDAY_NAME_ALIASES = {
+    "james":  "JamesH",
+    "jamesh": "JamesH",
+    "iain":   "Iain",
+}
+
 def working_days_in_ranges(holidays_rows: list, artist_name: str, from_date: date | None = None) -> int:
     """
     Total holiday days for a given artist from the Holidays sheet.
     Sheet columns: Artist | Start Date | End Date | Days
-    Uses the Days column directly if present, otherwise calculates from date range.
-    If from_date is set, only counts holidays starting on or after that date.
+
+    Date formats handled (all tried in order):
+        "22 April"        → assumes PROJECT_END year (2026)
+        "22 April 2026"   → explicit year
+        "22/04/2026"      → DD/MM/YYYY
+        "2026-04-22"      → ISO
+
+    Uses the Days column directly when present.
+    If from_date is set, only counts holidays that end on or after from_date.
+    Artist name is matched via HOLIDAY_NAME_ALIASES for sheet↔code mismatches.
     """
+    def parse_holiday_date(s: str) -> date | None:
+        s = s.strip()
+        if not s:
+            return None
+        year = PROJECT_END.year   # default year when none is given in the cell
+        for fmt in (
+            "%d %B %Y",   # "22 April 2026"
+            "%d %B",      # "22 April"  ← main format seen in the sheet
+            "%d/%m/%Y",   # "22/04/2026"
+            "%d-%m-%Y",   # "22-04-2026"
+            "%Y-%m-%d",   # "2026-04-22"
+        ):
+            try:
+                d = datetime.strptime(s, fmt)
+                # If year wasn't in the format string, apply the default year
+                if "%Y" not in fmt:
+                    d = d.replace(year=year)
+                return d.date()
+            except ValueError:
+                continue
+        return None
+
+    # Normalise the target artist name via aliases
+    canonical = artist_name.strip().lower()
+    canonical = HOLIDAY_NAME_ALIASES.get(canonical, artist_name)  # resolve alias
+    canonical_lower = canonical.lower()
+
     total = 0
     for row in holidays_rows:
-        if len(row) < 3: continue
-        if row[0].strip().lower() != artist_name.lower(): continue
-
-        # Parse dates — try DD/MM/YYYY then YYYY-MM-DD
-        h_start = h_end = None
-        for fmt in ("%d/%m/%Y", "%Y-%m-%d", "%d-%m-%Y"):
-            try:
-                h_start = datetime.strptime(row[1].strip(), fmt).date()
-                h_end   = datetime.strptime(row[2].strip(), fmt).date()
-                break
-            except (ValueError, IndexError):
-                continue
-
-        if not h_start:
+        if len(row) < 3:
             continue
 
-        # If from_date filter is set, skip holidays that end before it
+        # Match sheet artist name → canonical name via alias, then compare
+        sheet_artist = row[0].strip()
+        resolved     = HOLIDAY_NAME_ALIASES.get(sheet_artist.lower(), sheet_artist)
+        if resolved.lower() != canonical_lower:
+            continue
+
+        h_start = parse_holiday_date(row[1])
+        h_end   = parse_holiday_date(row[2]) if len(row) > 2 else None
+        if not h_start or not h_end:
+            continue
+
+        # Skip holidays that ended before our from_date filter
         if from_date and h_end < from_date:
             continue
 
-        # Use the Days column if present and valid (#3)
+        # Use Days column if valid
         if len(row) >= 4 and row[3].strip():
             try:
                 days = float(row[3].strip())
                 if from_date and h_start < from_date:
-                    # Holiday partially in the past — use working days from from_date
+                    # Partially past — recalculate from from_date
                     total += working_days_between(from_date, h_end)
                 else:
                     total += int(days)
@@ -196,7 +237,7 @@ def working_days_in_ranges(holidays_rows: list, artist_name: str, from_date: dat
             except ValueError:
                 pass
 
-        # Fallback: count working days from the date range
+        # Fallback: count working days from range
         effective_start = max(h_start, from_date) if from_date else h_start
         total += working_days_between(effective_start, h_end)
 
@@ -204,7 +245,7 @@ def working_days_in_ranges(holidays_rows: list, artist_name: str, from_date: dat
 
 
 # ── Page Setup ───────────────────────────────────────────────────────────────────
-st.set_page_config(page_title="TileMap Stats Dashboard v55", layout="wide")
+st.set_page_config(page_title="TileMap Stats Dashboard v57", layout="wide")
 
 # Header with today's date badge
 today = date.today()
@@ -220,7 +261,7 @@ st.markdown(
       </div>
       <div>
         <h2 style="margin:0; padding:0; font-size:1.6rem;">TileMap Stats Dashboard</h2>
-        <div style="color:#888; font-size:0.85rem;">v55 · {today.strftime('%A %d %B %Y')}</div>
+        <div style="color:#888; font-size:0.85rem;">v57 · {today.strftime('%A %d %B %Y')}</div>
       </div>
     </div>
     """,
@@ -230,6 +271,14 @@ st.markdown(
 # Session state: tracks which tiles the user has clicked/selected for the request form
 if 'selected_request_tiles' not in st.session_state:
     st.session_state.selected_request_tiles = []
+
+# Comment form key counter — incrementing this forces Streamlit to reset the widgets (#2)
+if 'comment_form_key' not in st.session_state:
+    st.session_state.comment_form_key = 0
+
+# Delete confirmation state: stores the row index pending confirmation (#3)
+if 'delete_confirm_row' not in st.session_state:
+    st.session_state.delete_confirm_row = None
 
 raw_main, raw_milestone, raw_holidays, raw_contacts, raw_comments, formatting_response = get_dashboard_data()
 row_data = formatting_response.get('sheets', [{}])[0].get('data', [{}])[0].get('rowData', [])
@@ -478,9 +527,16 @@ selected_artists = st.multiselect(
 
 df_filtered = df_map[df_map['artist'].isin(selected_artists)].copy() if selected_artists else df_map.iloc[0:0].copy()
 
+# Stats are always computed from non-excluded artists only (#1)
+# Unassigned may be in df_filtered for tilemap display but must never enter stats
+df_stats = df_filtered[~df_filtered['artist'].isin(EXCLUDED_FROM_TRACKING)].copy()
+
 if selected_artists:
-    parts = [f"**{a}**: {len(df_filtered[df_filtered['artist'] == a])}" for a in selected_artists]
-    st.caption("  ·  ".join(parts))
+    # Caption shows counts only for real artists (not Unassigned)
+    real_selected = [a for a in selected_artists if a not in EXCLUDED_FROM_TRACKING]
+    parts = [f"**{a}**: {len(df_stats[df_stats['artist'] == a])}" for a in real_selected]
+    if parts:
+        st.caption("  ·  ".join(parts))
 
 st.divider()
 
@@ -489,35 +545,27 @@ st.divider()
 #  📊  TOP STATS
 # ════════════════════════════════════════════════════════════════════
 
-f_25  = int((df_filtered['comp_pct'] == 25).sum())
-f_50  = int((df_filtered['comp_pct'] == 50).sum())
-f_75  = int((df_filtered['comp_pct'] == 75).sum())
-f_100 = int((df_filtered['comp_pct'] == 100).sum())
-
-# Always exclude Unassigned/Not Included from tracked stats regardless of filter (#6)
-df_tracked = df_filtered[~df_filtered['artist'].isin(EXCLUDED_FROM_TRACKING)]
-f_tracked  = len(df_tracked)
-f_man_days = round(df_tracked['day_val'].sum())
-
-# Recalculate completion counts from tracked-only tiles (exclude Unassigned completions)
-f_25  = int((df_tracked['comp_pct'] == 25).sum())
-f_50  = int((df_tracked['comp_pct'] == 50).sum())
-f_75  = int((df_tracked['comp_pct'] == 75).sum())
-f_100 = int((df_tracked['comp_pct'] == 100).sum())
+# All stats come from df_stats (already excludes EXCLUDED_FROM_TRACKING)
+f_tracked  = len(df_stats)
+f_man_days = round(df_stats['day_val'].sum())
+f_25  = int((df_stats['comp_pct'] == 25).sum())
+f_50  = int((df_stats['comp_pct'] == 50).sum())
+f_75  = int((df_stats['comp_pct'] == 75).sum())
+f_100 = int((df_stats['comp_pct'] == 100).sum())
 
 
-# ── Artist Remaining Days (#2) — shown only when a single artist is selected ────
-show_artist_remaining = (
-    len(selected_artists) == 1 and
-    selected_artists[0] not in EXCLUDED_FROM_TRACKING
-)
+# Artist remaining days — only when exactly one real (non-excluded) artist is selected
+real_selected_artists = [a for a in selected_artists if a not in EXCLUDED_FROM_TRACKING]
+show_artist_remaining = (len(real_selected_artists) == 1)
 
-artist_remaining_days = None
+artist_remaining_days  = None
 artist_has_enough_time = None
+upcoming_holiday_days  = 0
+holiday_days_total     = 0
 
 if show_artist_remaining:
-    solo = selected_artists[0]
-    df_solo = df_filtered[~df_filtered['artist'].isin(EXCLUDED_FROM_TRACKING)].copy()
+    solo    = real_selected_artists[0]
+    df_solo = df_stats.copy()   # already scoped to selected artists, excl. Unassigned
 
     def remaining_cost(row):
         done_fraction = row['comp_pct'] / 100.0
@@ -526,10 +574,7 @@ if show_artist_remaining:
     df_solo['remaining_cost'] = df_solo.apply(remaining_cost, axis=1)
     raw_remaining = df_solo['remaining_cost'].sum()
 
-    # All holiday days for this artist (past + future) — used for availability deduction
-    holiday_days_total = working_days_in_ranges(raw_holidays[1:], solo)
-
-    # Upcoming holidays only (from today onwards) — shown as a stat (#5)
+    holiday_days_total    = working_days_in_ranges(raw_holidays[1:], solo)
     upcoming_holiday_days = working_days_in_ranges(raw_holidays[1:], solo, from_date=today)
 
     artist_remaining_days  = max(0, round(raw_remaining))
@@ -842,39 +887,107 @@ st.divider()
 #  💬  COMMENTS TABLE  (#3)
 # ════════════════════════════════════════════════════════════════════
 
+# ════════════════════════════════════════════════════════════════════
+#  💬  COMMENTS TABLE
+# ════════════════════════════════════════════════════════════════════
+
 st.subheader("💬 Artist Comments")
 st.caption("Comments sheet columns: Date | Artist Name | Tile | Comment")
 
-# ── Display existing comments ─────────────────────────────────────────────────────
 COMMENT_COLS = ["Date", "Artist Name", "Tile", "Comment"]
 
-if raw_comments and len(raw_comments) > 1:
-    # Use sheet headers if present, otherwise fall back to expected column names
-    header = raw_comments[0]
-    if len(header) >= 4 and any(h.strip() for h in header):
-        col_names = [h.strip() if h.strip() else COMMENT_COLS[i] for i, h in enumerate(header[:4])]
-    else:
-        col_names = COMMENT_COLS
+def get_comments_ws():
+    """Return the Comments worksheet (write access)."""
+    c = get_creds()
+    cl = gspread.authorize(c)
+    ws_list = cl.open_by_key(SHEET_ID).worksheets()
+    return next((s for s in ws_list if "Comment" in s.title), None)
 
-    df_comments = pd.DataFrame(
-        [r[:4] if len(r) >= 4 else r + [''] * (4 - len(r)) for r in raw_comments[1:]],
-        columns=col_names
+# ── Display existing comments with per-row delete button (#3) ─────────────────────
+if raw_comments and len(raw_comments) > 1:
+    header = raw_comments[0]
+    col_names = (
+        [h.strip() if h.strip() else COMMENT_COLS[i] for i, h in enumerate(header[:4])]
+        if len(header) >= 4 and any(h.strip() for h in header)
+        else COMMENT_COLS
     )
-    df_comments = df_comments[df_comments.apply(lambda r: any(str(v).strip() for v in r), axis=1)]
-    st.dataframe(df_comments, use_container_width=True, hide_index=True)
+
+    # Build display rows — each gets a Delete button in an extra column
+    data_rows = [
+        r[:4] if len(r) >= 4 else r + [''] * (4 - len(r))
+        for r in raw_comments[1:]
+    ]
+    # Filter blank rows but keep track of original sheet row index (1-based, +1 for header)
+    non_blank = [
+        (sheet_row_idx + 2, row)   # +2: 1-based + skip header
+        for sheet_row_idx, row in enumerate(data_rows)
+        if any(str(v).strip() for v in row)
+    ]
+
+    if non_blank:
+        # Header row
+        hdr_cols = st.columns([1, 1, 1, 3, 0.4])
+        for col, name in zip(hdr_cols[:4], col_names):
+            col.markdown(f"**{name}**")
+
+        st.divider()
+
+        for sheet_row, row in non_blank:
+            row_cols = st.columns([1, 1, 1, 3, 0.4])
+            for col, val in zip(row_cols[:4], row):
+                col.write(val)
+
+            with row_cols[4]:
+                if st.button("🗑️", key=f"del_{sheet_row}", help="Delete this comment"):
+                    st.session_state.delete_confirm_row = sheet_row
+
+        # ── Confirmation dialog (#3) ──────────────────────────────────────────────
+        if st.session_state.delete_confirm_row is not None:
+            target_row = st.session_state.delete_confirm_row
+            # Find the row content for display
+            row_content = next(
+                (row for sr, row in non_blank if sr == target_row), ["?", "?", "?", "?"]
+            )
+            st.warning(
+                f"⚠️ Delete comment by **{row_content[1]}** on tile **{row_content[2]}**? "
+                f"*\"{row_content[3]}\"*"
+            )
+            conf_cols = st.columns([1, 1, 6])
+            with conf_cols[0]:
+                if st.button("✅ Yes, delete", key="confirm_delete"):
+                    try:
+                        ws = get_comments_ws()
+                        if ws:
+                            ws.delete_rows(target_row)
+                            st.success("Comment deleted.")
+                        else:
+                            st.error("Comments sheet not found.")
+                    except Exception as e:
+                        st.error(f"Delete failed: {e}")
+                    st.session_state.delete_confirm_row = None
+                    st.cache_data.clear()
+                    st.rerun()
+            with conf_cols[1]:
+                if st.button("❌ Cancel", key="cancel_delete"):
+                    st.session_state.delete_confirm_row = None
+                    st.rerun()
+    else:
+        st.info("No comments yet.")
 else:
     st.info("No comments yet. Add the first one below.")
 
-# ── Add new comment form ──────────────────────────────────────────────────────────
+# ── Add new comment form (#2 — fields clear after save via key counter) ───────────
 st.markdown("**Add a Comment**")
+
+fk = st.session_state.comment_form_key   # incrementing this resets all keyed widgets
 
 comment_cols = st.columns([1, 1, 2, 1])
 with comment_cols[0]:
-    comment_artist = st.selectbox("Artist", options=[""] + KNOWN_ARTISTS, key="c_artist")
+    comment_artist = st.selectbox("Artist", options=[""] + KNOWN_ARTISTS, key=f"c_artist_{fk}")
 with comment_cols[1]:
-    comment_tile   = st.selectbox("Tile",   options=[""] + sorted(df_map['name'].tolist()), key="c_tile")
+    comment_tile   = st.selectbox("Tile",   options=[""] + sorted(df_map['name'].tolist()), key=f"c_tile_{fk}")
 with comment_cols[2]:
-    comment_text   = st.text_input("Comment", placeholder="Enter your comment here...", key="c_text")
+    comment_text   = st.text_input("Comment", placeholder="Enter your comment here...", key=f"c_text_{fk}")
 with comment_cols[3]:
     st.markdown("<br>", unsafe_allow_html=True)
     save_comment = st.button("💾 Save Comment")
@@ -884,24 +997,19 @@ if save_comment:
         st.warning("Please fill in Artist, Tile, and Comment before saving.")
     else:
         try:
-            creds_write  = get_creds()
-            client_write = gspread.authorize(creds_write)
-            opened_write = client_write.open_by_key(SHEET_ID)
-            all_sheets   = opened_write.worksheets()
-            comments_ws  = next((s for s in all_sheets if "Comment" in s.title), None)
-
-            if comments_ws is None:
-                st.error("Comments sheet not found. Make sure a sheet with 'Comment' in its name exists.")
+            ws = get_comments_ws()
+            if ws is None:
+                st.error("Comments sheet not found.")
             else:
-                # Column order: Date | Artist Name | Tile | Comment
                 new_row = [
                     today.strftime("%d/%m/%Y"),
                     comment_artist,
                     comment_tile,
                     comment_text.strip()
                 ]
-                comments_ws.append_row(new_row, value_input_option="USER_ENTERED")
-                st.success("✅ Comment saved successfully!")
+                ws.append_row(new_row, value_input_option="USER_ENTERED")
+                st.success("✅ Comment saved!")
+                st.session_state.comment_form_key += 1   # clears the form widgets (#2)
                 st.cache_data.clear()
                 st.rerun()
         except Exception as e:
