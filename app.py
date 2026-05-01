@@ -1,13 +1,11 @@
-####### ---  Tilemap Stats Dashboard Web App v57  ------########
+####### ---  Tilemap Stats Dashboard Web App v58  ------########
 
-## v56 Baseline — sidebar-only tile request, cleaned up UI
-## v57 Changes:
-##     1. Unassigned in artist filter only affects tilemap — never counted in stats
-##     2. Comment form fields clear after successful save (session state counter trick)
-##     3. Delete button per comment row with confirmation dialog
-##     4. Holiday date parser handles "22 April" format (no year) with alias map
-##        for artist name mismatches (e.g. "James" in sheet → "JamesH" in code)
-##.    5. Added some more text to say there is a small delay when updating the Comments table.
+## v57 Baseline — holidays working, comment clear/delete, Unassigned stats isolation
+## v58 Changes:
+##     1. Holiday Gantt chart below artist stats — horizontal bars per artist showing
+##        when holidays fall in the remaining project timeline. Shown for single artist
+##        and for all artists selected.
+##     2. Visual tilemap station tiles outlined with thick black border so they stand out.
 
 
 ## v53 Baseline — date badge header, 3-line note parsing, multi-tile request, Unassigned filter fix
@@ -245,8 +243,53 @@ def working_days_in_ranges(holidays_rows: list, artist_name: str, from_date: dat
     return total
 
 
+def build_holiday_df(holidays_rows: list, artists_filter: list | None = None) -> pd.DataFrame:
+    """
+    Parse all holidays from the sheet into a flat DataFrame for Gantt chart rendering.
+    Returns columns: artist, start, end, days
+    Optionally filter to a specific list of artist names.
+    Uses the same date parser and alias resolution as working_days_in_ranges.
+    """
+    def parse_holiday_date(s: str) -> date | None:
+        s = s.strip()
+        if not s: return None
+        year = PROJECT_END.year
+        for fmt in ("%d %B %Y", "%d %B", "%d/%m/%Y", "%d-%m-%Y", "%Y-%m-%d"):
+            try:
+                d = datetime.strptime(s, fmt)
+                if "%Y" not in fmt:
+                    d = d.replace(year=year)
+                return d.date()
+            except ValueError:
+                continue
+        return None
+
+    records = []
+    for row in holidays_rows:
+        if len(row) < 3: continue
+        sheet_artist = row[0].strip()
+        if not sheet_artist: continue
+        resolved = HOLIDAY_NAME_ALIASES.get(sheet_artist.lower(), sheet_artist)
+        if artists_filter and resolved not in artists_filter:
+            continue
+        h_start = parse_holiday_date(row[1])
+        h_end   = parse_holiday_date(row[2])
+        if not h_start or not h_end: continue
+        days = 0
+        if len(row) >= 4 and row[3].strip():
+            try: days = int(float(row[3].strip()))
+            except ValueError: pass
+        if days == 0:
+            days = working_days_between(h_start, h_end)
+        records.append({'artist': resolved, 'start': h_start, 'end': h_end, 'days': days})
+
+    return pd.DataFrame(records) if records else pd.DataFrame(
+        columns=['artist', 'start', 'end', 'days']
+    )
+
+
 # ── Page Setup ───────────────────────────────────────────────────────────────────
-st.set_page_config(page_title="TileMap Stats Dashboard v57", layout="wide")
+st.set_page_config(page_title="TileMap Stats Dashboard v58", layout="wide")
 
 # Header with today's date badge
 today = date.today()
@@ -262,7 +305,7 @@ st.markdown(
       </div>
       <div>
         <h2 style="margin:0; padding:0; font-size:1.6rem;">TileMap Stats Dashboard</h2>
-        <div style="color:#888; font-size:0.85rem;">v57 · {today.strftime('%A %d %B %Y')}</div>
+        <div style="color:#888; font-size:0.85rem;">v58 · {today.strftime('%A %d %B %Y')}</div>
       </div>
     </div>
     """,
@@ -618,8 +661,113 @@ st.divider()
 
 
 # ════════════════════════════════════════════════════════════════════
-#  🚩  MILESTONE TABLE
+#  🏖️  HOLIDAY CALENDAR GANTT CHART  (#1 & #2)
+#  Shown for single artist and for all-artist view.
+#  X-axis: today → PROJECT_END. Y-axis: artist names. Bars: blue = holiday block.
 # ════════════════════════════════════════════════════════════════════
+
+# Determine which artists to show in the Gantt:
+# - All real (non-excluded) artists when multiple are selected
+# - Just the solo artist when one is selected
+gantt_artists = real_selected_artists if real_selected_artists else None
+
+df_hols = build_holiday_df(raw_holidays[1:], artists_filter=gantt_artists)
+
+# Only render if there are any holiday rows that overlap the remaining timeline
+df_hols_future = df_hols[df_hols['end'] >= today] if not df_hols.empty else df_hols
+
+if not df_hols_future.empty:
+    st.subheader("🏖️ Holiday Calendar")
+
+    # Clip start dates to today so past portions of ongoing holidays don't show
+    df_hols_plot = df_hols_future.copy()
+    df_hols_plot['plot_start'] = df_hols_plot['start'].apply(lambda d: max(d, today))
+    df_hols_plot['plot_end']   = df_hols_plot['end']
+
+    fig_gantt = go.Figure()
+
+    # Grey background band for the full remaining project window
+    fig_gantt.add_vrect(
+        x0=today, x1=PROJECT_END,
+        fillcolor="#f0f4f8", opacity=0.5,
+        layer="below", line_width=0
+    )
+
+    # Today marker line
+    fig_gantt.add_vline(
+        x=today.isoformat(), line_width=2,
+        line_dash="dash", line_color="#ff9900",
+        annotation_text="Today", annotation_position="top left",
+        annotation_font_color="#ff9900"
+    )
+
+    # One bar per holiday block
+    for _, hrow in df_hols_plot.iterrows():
+        label = f"{hrow['days']}d" if hrow['days'] > 0 else ""
+        fig_gantt.add_trace(go.Bar(
+            x=[(hrow['plot_end'] - hrow['plot_start']).days + 1],
+            y=[hrow['artist']],
+            base=[hrow['plot_start'].isoformat()],
+            orientation='h',
+            marker=dict(color='#4285f4', opacity=0.85, line=dict(color='#1a56c4', width=1)),
+            text=label,
+            textposition='inside',
+            insidetextanchor='middle',
+            hovertemplate=(
+                f"<b>{hrow['artist']}</b><br>"
+                f"{hrow['start'].strftime('%d %b')} – {hrow['end'].strftime('%d %b %Y')}<br>"
+                f"{hrow['days']} day{'s' if hrow['days'] != 1 else ''}<extra></extra>"
+            ),
+            showlegend=False
+        ))
+
+    # Month boundary lines for easier reading
+    cur = date(today.year, today.month, 1)
+    while cur <= PROJECT_END:
+        fig_gantt.add_vline(
+            x=cur.isoformat(), line_width=1,
+            line_dash="dot", line_color="#cccccc"
+        )
+        # Advance to first of next month
+        if cur.month == 12:
+            cur = date(cur.year + 1, 1, 1)
+        else:
+            cur = date(cur.year, cur.month + 1, 1)
+
+    # Sorted artist list so y-axis is consistent
+    artist_order = sorted(df_hols_plot['artist'].unique().tolist())
+
+    fig_gantt.update_layout(
+        barmode='overlay',
+        xaxis=dict(
+            type='date',
+            range=[today.isoformat(), PROJECT_END.isoformat()],
+            tickformat='%d %b',
+            tickangle=-30,
+            dtick='M1',           # one tick per month
+            showgrid=True,
+            gridcolor='#e0e0e0',
+            title=''
+        ),
+        yaxis=dict(
+            categoryorder='array',
+            categoryarray=list(reversed(artist_order)),   # alphabetical top-to-bottom
+            title='',
+            tickfont=dict(size=13)
+        ),
+        plot_bgcolor='white',
+        paper_bgcolor='white',
+        height=max(120, 55 * len(artist_order) + 60),
+        margin=dict(l=20, r=20, t=10, b=40),
+        bargap=0.3,
+    )
+
+    st.plotly_chart(fig_gantt, use_container_width=True)
+    st.caption(f"Showing holidays from today ({today.strftime('%d %b %Y')}) to project end ({PROJECT_END.strftime('%d %b %Y')}). Past holidays excluded.")
+
+elif gantt_artists:
+    st.subheader("🏖️ Holiday Calendar")
+    st.info("No upcoming holidays found for the selected artist(s).")
 
 st.subheader("🚩 Milestone Visual Status")
 filtered_coords = set(df_filtered['name'].tolist())
@@ -832,36 +980,72 @@ if not df_map.empty:
         ))
 
     if not df_filtered.empty:
-        # Highlight tiles already in the request selection with a blue border
-        marker_sizes = df_filtered['name'].apply(
-            lambda n: 24 if n in st.session_state.selected_request_tiles else 18
-        ).tolist()
-        border_widths = df_filtered['name'].apply(
-            lambda n: 3 if n in st.session_state.selected_request_tiles else 1
-        ).tolist()
-        border_colors = df_filtered['name'].apply(
-            lambda n: '#1a73e8' if n in st.session_state.selected_request_tiles else 'DarkSlateGrey'
-        ).tolist()
+        # Split tiles into station tiles and regular tiles so we can render
+        # station tiles with a thick border as a separate trace on top.
+        df_station = df_filtered[df_filtered['station'] != ''].copy()
+        df_regular = df_filtered[df_filtered['station'] == ''].copy()
 
-        fig_map.add_trace(go.Scatter(
-            x=df_filtered['x'], y=df_filtered['y'],
-            mode='markers',
-            marker=dict(
-                size=marker_sizes, symbol='square',
-                color=df_filtered['color'],
-                line=dict(width=border_widths, color=border_colors)
-            ),
-            text=df_filtered.apply(
-                lambda r: (
-                    f"<b>{r['name']}</b><br>"
-                    f"Artist: {r['artist']}"
-                    + (f"<br>Station: {r['station']}" if r['station'] else "")
-                    + f"<br>Completion: {r['comp_pct']}%"
-                    f"<br>Day Value: {r['day_val']}"
-                ), axis=1
-            ),
-            hoverinfo='text', showlegend=False
-        ))
+        def border_width_for(row, is_station: bool) -> int:
+            if row['name'] in st.session_state.selected_request_tiles:
+                return 4 if is_station else 3
+            return 4 if is_station else 1
+
+        def border_color_for(row, is_station: bool) -> str:
+            if row['name'] in st.session_state.selected_request_tiles:
+                return '#1a73e8'
+            return '#000000' if is_station else 'DarkSlateGrey'
+
+        def marker_size_for(row) -> int:
+            return 24 if row['name'] in st.session_state.selected_request_tiles else 18
+
+        # ── Regular tiles ────────────────────────────────────────────────────────
+        if not df_regular.empty:
+            fig_map.add_trace(go.Scatter(
+                x=df_regular['x'], y=df_regular['y'],
+                mode='markers',
+                marker=dict(
+                    size=df_regular.apply(marker_size_for, axis=1).tolist(),
+                    symbol='square',
+                    color=df_regular['color'],
+                    line=dict(
+                        width=df_regular.apply(lambda r: border_width_for(r, False), axis=1).tolist(),
+                        color=df_regular.apply(lambda r: border_color_for(r, False), axis=1).tolist()
+                    )
+                ),
+                text=df_regular.apply(
+                    lambda r: (
+                        f"<b>{r['name']}</b><br>Artist: {r['artist']}"
+                        + f"<br>Completion: {r['comp_pct']}%"
+                        + f"<br>Day Value: {r['day_val']}"
+                    ), axis=1
+                ),
+                hoverinfo='text', showlegend=False, name='Tiles'
+            ))
+
+        # ── Station tiles — rendered last so their border sits on top ────────────
+        if not df_station.empty:
+            fig_map.add_trace(go.Scatter(
+                x=df_station['x'], y=df_station['y'],
+                mode='markers',
+                marker=dict(
+                    size=df_station.apply(marker_size_for, axis=1).tolist(),
+                    symbol='square',
+                    color=df_station['color'],
+                    line=dict(
+                        width=df_station.apply(lambda r: border_width_for(r, True), axis=1).tolist(),
+                        color=df_station.apply(lambda r: border_color_for(r, True), axis=1).tolist()
+                    )
+                ),
+                text=df_station.apply(
+                    lambda r: (
+                        f"<b>{r['name']}</b><br>Artist: {r['artist']}"
+                        + f"<br>🏛️ Station: {r['station']}"
+                        + f"<br>Completion: {r['comp_pct']}%"
+                        + f"<br>Day Value: {r['day_val']}"
+                    ), axis=1
+                ),
+                hoverinfo='text', showlegend=False, name='Station Tiles'
+            ))
 
     fig_map.update_layout(
         plot_bgcolor=COLOR_GRID, width=1000, height=800,
