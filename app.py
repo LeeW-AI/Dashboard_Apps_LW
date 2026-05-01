@@ -7,6 +7,7 @@
 ##     3. Delete button per comment row with confirmation dialog
 ##     4. Holiday date parser handles "22 April" format (no year) with alias map
 ##        for artist name mismatches (e.g. "James" in sheet → "JamesH" in code)
+##.    5. Added some more text to say there is a small delay when updating the Comments table.
 
 
 ## v53 Baseline — date badge header, 3-line note parsing, multi-tile request, Unassigned filter fix
@@ -1014,3 +1015,7 @@ if save_comment:
                 st.rerun()
         except Exception as e:
             st.error(f"Failed to save comment: {e}")
+            
+st.caption("When adding/deleting comments it can take a few seconds to update")
+st.divider()
+st.divider()
