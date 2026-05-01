@@ -687,18 +687,30 @@ if not df_hols_future.empty:
     fig_gantt = go.Figure()
 
     # Grey background band for the full remaining project window
-    fig_gantt.add_vrect(
-        x0=today, x1=PROJECT_END,
+    fig_gantt.add_shape(
+        type="rect",
+        x0=today.isoformat(), x1=PROJECT_END.isoformat(),
+        y0=0, y1=1,
+        xref="x", yref="paper",
         fillcolor="#f0f4f8", opacity=0.5,
         layer="below", line_width=0
     )
 
-    # Today marker line
-    fig_gantt.add_vline(
-        x=today.isoformat(), line_width=2,
-        line_dash="dash", line_color="#ff9900",
-        annotation_text="Today", annotation_position="top left",
-        annotation_font_color="#ff9900"
+    # Today marker line — using add_shape + add_annotation instead of add_vline
+    # because add_vline with annotation_text fails on older Plotly versions (Streamlit Cloud)
+    fig_gantt.add_shape(
+        type="line",
+        x0=today.isoformat(), x1=today.isoformat(),
+        y0=0, y1=1,
+        xref="x", yref="paper",
+        line=dict(color="#ff9900", width=2, dash="dash")
+    )
+    fig_gantt.add_annotation(
+        x=today.isoformat(), y=1,
+        xref="x", yref="paper",
+        text="Today", showarrow=False,
+        xanchor="left", yanchor="bottom",
+        font=dict(color="#ff9900", size=11)
     )
 
     # One bar per holiday block
@@ -724,11 +736,13 @@ if not df_hols_future.empty:
     # Month boundary lines for easier reading
     cur = date(today.year, today.month, 1)
     while cur <= PROJECT_END:
-        fig_gantt.add_vline(
-            x=cur.isoformat(), line_width=1,
-            line_dash="dot", line_color="#cccccc"
+        fig_gantt.add_shape(
+            type="line",
+            x0=cur.isoformat(), x1=cur.isoformat(),
+            y0=0, y1=1,
+            xref="x", yref="paper",
+            line=dict(color="#cccccc", width=1, dash="dot")
         )
-        # Advance to first of next month
         if cur.month == 12:
             cur = date(cur.year + 1, 1, 1)
         else:
