@@ -145,31 +145,57 @@ def working_days_between(start: date, end: date) -> int:
     days = pd.bdate_range(start=start, end=end)
     return len(days)
 
-def working_days_in_ranges(holiday_rows: list, artist_name: str) -> int:
+def working_days_in_ranges(holiday_rows: list, artist_name: str, from_date: date | None = None) -> int:
     """
-    Total working holiday days for a given artist.
-    holiday_rows: list of [artist, start_date_str, end_date_str]
+    Total holiday days for a given artist from the Holidays sheet.
+    Sheet columns: Artist | Start Date | End Date | Days
+    Uses the Days column directly if present, otherwise calculates from date range.
+    If from_date is set, only counts holidays starting on or after that date.
     """
     total = 0
     for row in holiday_rows:
         if len(row) < 3: continue
         if row[0].strip().lower() != artist_name.lower(): continue
-        try:
-            h_start = datetime.strptime(row[1].strip(), "%d/%m/%Y").date()
-            h_end   = datetime.strptime(row[2].strip(), "%d/%m/%Y").date()
-            total  += working_days_between(h_start, h_end)
-        except ValueError:
+
+        # Parse dates — try DD/MM/YYYY then YYYY-MM-DD
+        h_start = h_end = None
+        for fmt in ("%d/%m/%Y", "%Y-%m-%d", "%d-%m-%Y"):
             try:
-                h_start = datetime.strptime(row[1].strip(), "%Y-%m-%d").date()
-                h_end   = datetime.strptime(row[2].strip(), "%Y-%m-%d").date()
-                total  += working_days_between(h_start, h_end)
+                h_start = datetime.strptime(row[1].strip(), fmt).date()
+                h_end   = datetime.strptime(row[2].strip(), fmt).date()
+                break
+            except (ValueError, IndexError):
+                continue
+
+        if not h_start:
+            continue
+
+        # If from_date filter is set, skip holidays that end before it
+        if from_date and h_end < from_date:
+            continue
+
+        # Use the Days column if present and valid (#3)
+        if len(row) >= 4 and row[3].strip():
+            try:
+                days = float(row[3].strip())
+                if from_date and h_start < from_date:
+                    # Holiday partially in the past — use working days from from_date
+                    total += working_days_between(from_date, h_end)
+                else:
+                    total += int(days)
+                continue
             except ValueError:
                 pass
+
+        # Fallback: count working days from the date range
+        effective_start = max(h_start, from_date) if from_date else h_start
+        total += working_days_between(effective_start, h_end)
+
     return total
 
 
 # ── Page Setup ───────────────────────────────────────────────────────────────────
-st.set_page_config(page_title="TileMap Stats Dashboard v54", layout="wide")
+st.set_page_config(page_title="TileMap Stats Dashboard v55", layout="wide")
 
 # Header with today's date badge
 today = date.today()
@@ -185,7 +211,7 @@ st.markdown(
       </div>
       <div>
         <h2 style="margin:0; padding:0; font-size:1.6rem;">TileMap Stats Dashboard</h2>
-        <div style="color:#888; font-size:0.85rem;">v54 · {today.strftime('%A %d %B %Y')}</div>
+        <div style="color:#888; font-size:0.85rem;">v55 · {today.strftime('%A %d %B %Y')}</div>
       </div>
     </div>
     """,
@@ -246,41 +272,89 @@ def parse_note(note_text: str) -> tuple[str | None, float, str | None]:
     """
     Parse a cell note to extract station name, artist name, and optional day override.
 
-    Supported formats (all lines optional, any order):
-        "Iain"                   → station=None,        artist="Iain",  days=1.85
-        "Iain\\n3.5"             → station=None,        artist="Iain",  days=3.5
-        "Station A\\nIain"       → station="Station A", artist="Iain",  days=1.85
-        "Station A\\nIain\\n3.5" → station="Station A", artist="Iain",  days=3.5
+    Handles two formats:
+      Multi-line (one value per line, any order):
+        "Leeds"              → station="Leeds", artist=None,        days=1.85
+        "Leeds\nIain\n2.5"  → station="Leeds", artist="Iain",      days=2.5
+        "Iain\n2.5 days"    → station=None,    artist="Iain",      days=2.5
 
-    Robustness: strips all leading/trailing whitespace and \r characters from each
-    line before matching, which fixes cases where Google Sheets adds trailing spaces
-    or CRLF line endings that prevent the float() parse from succeeding.
+      Single-line space-separated (legacy):
+        "Leeds ArtistTBD 2.5 days" → station="Leeds", artist="ArtistTBD", days=2.5
+
+    Robustness:
+      - Strips trailing "days" / "day" suffix from numeric tokens (case-insensitive)
+      - Handles comma decimal separators (e.g. "2,5")
+      - Strips CRLF line endings from Google Sheets
     """
     if not note_text:
         return None, MAN_DAY_MULTIPLIER, None
 
-    # Normalise line endings then split
-    lines   = note_text.replace('\r', '').strip().splitlines()
+    def try_parse_float(s: str) -> float | None:
+        """Strip 'days'/'day' suffix then try float parse."""
+        s = re.sub(r'\s*(days?)\s*$', '', s.strip(), flags=re.IGNORECASE)
+        s = s.replace(',', '.')
+        try:
+            return float(s)
+        except ValueError:
+            return None
+
+    # Normalise — replace CRLF, then try both multi-line and single-line
+    normalised = note_text.replace('\r', '').strip()
+
+    # Collect all tokens: split by newlines first, then by spaces within each line
+    tokens = []
+    for line in normalised.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        # If the line contains a known artist name exactly, keep as one token
+        if line.lower() in ARTIST_LOOKUP:
+            tokens.append(line)
+        else:
+            # Split the line into individual words/tokens for single-line format
+            tokens.extend(line.split())
+
     artist  = None
     day_val = MAN_DAY_MULTIPLIER
-    station = None
+    station_parts = []
 
-    for line in lines:
-        stripped = line.strip()       # remove spaces, tabs, stray \r
-        norm     = stripped.lower()
-        if not stripped:
+    i = 0
+    while i < len(tokens):
+        tok = tokens[i]
+
+        # Check artist — try progressively longer phrases (handles "James H")
+        matched_artist = None
+        for length in range(3, 0, -1):
+            phrase = ' '.join(tokens[i:i+length]).strip()
+            if phrase.lower() in ARTIST_LOOKUP:
+                matched_artist = ARTIST_LOOKUP[phrase.lower()]
+                i += length
+                break
+
+        if matched_artist:
+            artist = matched_artist
             continue
-        if norm in ARTIST_LOOKUP:
-            artist = ARTIST_LOOKUP[norm]
-        else:
-            # Replace comma decimal separator in case of locale differences
-            try:
-                day_val = float(stripped.replace(',', '.'))
-            except ValueError:
-                # Not an artist, not a number → station name
-                if station is None:
-                    station = stripped
 
+        # Check numeric (day value) — may be followed by "days"
+        num = try_parse_float(tok)
+        if num is not None:
+            day_val = num
+            i += 1
+            # Consume a trailing standalone "days"/"day" token if present
+            if i < len(tokens) and re.fullmatch(r'days?', tokens[i], re.IGNORECASE):
+                i += 1
+            continue
+
+        # Skip standalone "days"/"day" that wasn't consumed above
+        if re.fullmatch(r'days?', tok, re.IGNORECASE):
+            i += 1
+            continue
+
+        # Everything else is part of the station name
+        station_parts.append(tok)
+        i += 1
+
+    station = ' '.join(station_parts) if station_parts else None
     return artist, day_val, station
 
 
@@ -411,9 +485,16 @@ f_50  = int((df_filtered['comp_pct'] == 50).sum())
 f_75  = int((df_filtered['comp_pct'] == 75).sum())
 f_100 = int((df_filtered['comp_pct'] == 100).sum())
 
-df_tracked   = df_filtered[~df_filtered['artist'].isin(EXCLUDED_FROM_TRACKING)]
-f_tracked    = len(df_tracked)
-f_man_days   = round(df_tracked['day_val'].sum())  # uses per-tile day values
+# Always exclude Unassigned/Not Included from tracked stats regardless of filter (#6)
+df_tracked = df_filtered[~df_filtered['artist'].isin(EXCLUDED_FROM_TRACKING)]
+f_tracked  = len(df_tracked)
+f_man_days = round(df_tracked['day_val'].sum())
+
+# Recalculate completion counts from tracked-only tiles (exclude Unassigned completions)
+f_25  = int((df_tracked['comp_pct'] == 25).sum())
+f_50  = int((df_tracked['comp_pct'] == 50).sum())
+f_75  = int((df_tracked['comp_pct'] == 75).sum())
+f_100 = int((df_tracked['comp_pct'] == 100).sum())
 
 
 # ── Artist Remaining Days (#2) — shown only when a single artist is selected ────
@@ -436,25 +517,11 @@ if show_artist_remaining:
     df_solo['remaining_cost'] = df_solo.apply(remaining_cost, axis=1)
     raw_remaining = df_solo['remaining_cost'].sum()
 
-    # All holiday days for this artist (past + future) — used for deduction
+    # All holiday days for this artist (past + future) — used for availability deduction
     holiday_days_total = working_days_in_ranges(raw_holidays[1:], solo)
 
     # Upcoming holidays only (from today onwards) — shown as a stat (#5)
-    upcoming_holiday_days = 0
-    for row in raw_holidays[1:]:
-        if len(row) < 3: continue
-        if row[0].strip().lower() != solo.lower(): continue
-        for fmt in ("%d/%m/%Y", "%Y-%m-%d"):
-            try:
-                h_start = datetime.strptime(row[1].strip(), fmt).date()
-                h_end   = datetime.strptime(row[2].strip(), fmt).date()
-                # Only count days from today onwards
-                effective_start = max(h_start, today)
-                if effective_start <= h_end:
-                    upcoming_holiday_days += working_days_between(effective_start, h_end)
-                break
-            except ValueError:
-                continue
+    upcoming_holiday_days = working_days_in_ranges(raw_holidays[1:], solo, from_date=today)
 
     artist_remaining_days  = max(0, round(raw_remaining))
     available_days         = max(0, remaining_proj_days - holiday_days_total)
@@ -596,7 +663,7 @@ with st.sidebar:
     st.header("📬 Request Tile Access")
     st.caption("Select tiles using the selector below the map, then fill in the form here.")
 
-    # All requestable tiles (non-excluded artists only)
+    # Requestable tiles: exclude Unassigned and Not Included (#2)
     requestable_tiles = sorted(
         df_map[~df_map['artist'].isin(EXCLUDED_FROM_TRACKING)]['name'].tolist()
     )
@@ -653,20 +720,23 @@ with st.sidebar:
                     + "\n\nPlease confirm availability at your earliest convenience.\n\nThanks"
                 )
 
-                # mailto: link — opens default mail client (works on iPad/Outlook/Apple Mail)
+                # mailto: link — opens default mail client (iPad/Outlook/Apple Mail)
                 mailto = (
                     f"mailto:{urllib.parse.quote(email)}"
                     f"?subject={urllib.parse.quote(subject)}"
                     f"&body={urllib.parse.quote(body_plain)}"
                 )
 
-                # Gmail web compose link — for browser-based Gmail users (#4)
-                gmail_body = body_plain.replace('\n', '%0A')
-                gmail_url  = (
-                    f"https://mail.google.com/mail/?view=cm"
-                    f"&to={urllib.parse.quote(email)}"
-                    f"&su={urllib.parse.quote(subject)}"
-                    f"&body={gmail_body}"
+                # Gmail web compose — percent-encode manually so spaces become %20
+                # and newlines become %0A (Gmail ignores + encoded spaces in body)
+                def gmail_encode(s: str) -> str:
+                    return urllib.parse.quote(s, safe='')
+
+                gmail_url = (
+                    f"https://mail.google.com/mail/?view=cm&fs=1"
+                    f"&to={gmail_encode(email)}"
+                    f"&su={gmail_encode(subject)}"
+                    f"&body={gmail_encode(body_plain)}"
                 )
 
                 st.markdown(f"**{art}**")
@@ -764,21 +834,26 @@ st.markdown("**🔲 Add tiles to access request:**")
 tile_pick_cols = st.columns([4, 1])
 with tile_pick_cols[0]:
     picked_tiles = st.multiselect(
-        "Search and select tiles to request access",
-        options = requestable_tiles,
-        default = st.session_state.selected_request_tiles,
-        key     = "map_tile_picker",
+        "Search and select tiles",
+        options     = requestable_tiles,
+        default     = [],          # always empty — user picks fresh each time
+        key         = "map_tile_picker",
         label_visibility = "collapsed",
         placeholder = "Type a tile coordinate to search, e.g. -83/-265 ..."
     )
 with tile_pick_cols[1]:
     if st.button("Add to Request →", use_container_width=True):
+        added = 0
         for t in picked_tiles:
             if t not in st.session_state.selected_request_tiles:
                 st.session_state.selected_request_tiles.append(t)
-        st.rerun()
+                added += 1
+        if added:
+            st.rerun()
+        else:
+            st.toast("All selected tiles are already in the request list.")
 
-st.caption(f"{len(st.session_state.selected_request_tiles)} tile(s) selected for request — see sidebar to fill in details and send.")
+st.caption(f"{len(st.session_state.selected_request_tiles)} tile(s) in request — see sidebar to fill in details and send.")
 
 st.divider()
 
